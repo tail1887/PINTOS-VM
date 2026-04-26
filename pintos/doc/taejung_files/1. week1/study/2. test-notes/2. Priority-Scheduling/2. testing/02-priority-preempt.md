@@ -3,6 +3,11 @@
 ## 1. 이 테스트가 검증하는 것
 더 높은 priority 스레드가 READY가 되는 즉시 선점이 반영되는지 검증합니다.
 
+## 1-1. 이 테스트가 실제로 확인하는 것
+- 고우선순위 스레드 생성 직후 저우선순위 스레드 출력보다 먼저 고우선순위 반복 출력이 연속으로 나오는지 확인한다.
+- `"The high-priority thread should have already completed."` 시점 전에 high 스레드가 이미 종료됐는지 확인한다.
+- `thread_create()`/`thread_unblock()` 경로에서 preemption 연결 누락이 없는지 실행 순서로 검증한다.
+
 ## 2. 구현 필요 함수와 규칙
 ### `thread_unblock()`
 - 위치: `pintos/threads/thread.c`

@@ -71,7 +71,14 @@ sequenceDiagram
 - 역할: 사용자 지정 base priority 변경과 donation 적용 상태를 분리한다.
 - 규칙 1: donation 활성 상태에서는 base priority만 업데이트하고 effective priority 적용 시점을 구분한다.
 
+### 4.5 `cond_signal()` / `cond_wait()` 경계 주석
+- 위치: `pintos/threads/synch.c`
+- 역할: condition variable waiter 선택이 priority 정책과 일치하도록 유지한다.
+- 규칙 1: `cond_signal()`은 조건변수 waiters에서 우선순위가 가장 높은 대기자를 깨우는 정책을 보장한다.
+- 규칙 2: condition waiter 비교 기준은 내부 semaphore 대기 스레드의 priority를 반영해야 한다.
+
 ## 5. 테스팅 방법
 - `priority-donate-one`, `priority-donate-multiple`, `priority-donate-nest`
 - `priority-donate-chain`, `priority-donate-sema`, `priority-donate-lower`
+- `priority-condvar`
 - 실패 시 `lock_acquire/release`와 waiter 선택 정책부터 점검

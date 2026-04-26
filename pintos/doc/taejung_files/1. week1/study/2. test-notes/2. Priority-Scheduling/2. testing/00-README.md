@@ -9,6 +9,7 @@
 3. `03-priority-fifo.md`
 4. `04-priority-sema.md`
 5. `05-priority-donate.md`
+6. `06-priority-condvar.md`
 
 ## 사용 방법
 - 실패한 테스트 문서를 먼저 연다.

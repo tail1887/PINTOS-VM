@@ -3,6 +3,11 @@
 ## 1. 이 테스트가 검증하는 것
 세마포어 대기열(waiters)에서 높은 priority 스레드가 먼저 깨어나는지 검증합니다.
 
+## 1-1. 이 테스트가 실제로 확인하는 것
+- `Thread priority 30`부터 `21`까지 wake 출력이 내림차순 priority 순서로 나타나는지 확인한다.
+- 각 wake 사이에 `Back in main thread.`가 기대대로 끼어들며 signal/down-up 핸드셰이크가 깨지지 않는지 확인한다.
+- `sema_up()`이 FIFO pop으로 동작해 낮은 priority가 먼저 깨는 회귀가 없는지 확인한다.
+
 ## 2. 구현 필요 함수와 규칙
 ### `sema_down()`, `sema_up()`
 - 위치: `pintos/threads/synch.c`
