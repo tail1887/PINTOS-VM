@@ -2,6 +2,13 @@
 
 이 폴더는 Alarm Clock을 **기능 이해 -> 테스트 검증** 흐름으로 학습하기 위한 문서 모음입니다.
 
+- 템플릿/양식/생성 절차 통합 가이드: `1. Alarm-Clock/00-template-and-generation-guide.md`
+- Priority Scheduling 문서 세트: `1. Priority-Scheduling/00-template-and-generation-guide.md`
+
+## 트랙 구성
+- Alarm Clock 트랙: `1. Alarm-Clock`
+- Priority Scheduling 트랙: `1. Priority-Scheduling`
+
 ## 학습 원칙
 - 먼저 `1. feature`에서 기능 흐름을 이해한다.
 - 구현은 함수별 규칙 문장을 기준으로 진행한다.
