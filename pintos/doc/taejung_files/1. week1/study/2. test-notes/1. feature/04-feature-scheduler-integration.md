@@ -1,4 +1,4 @@
-# 05 — 기능 4: 스케줄러 연계 (Scheduler Integration)
+# 04 — 기능 3: 스케줄러 연계 (Scheduler Integration)
 
 ## 1. 구현 목적 및 필요성
 ### 이 기능이 무엇인가

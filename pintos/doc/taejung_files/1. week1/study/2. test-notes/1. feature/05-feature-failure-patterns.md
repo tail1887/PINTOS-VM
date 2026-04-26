@@ -1,4 +1,4 @@
-# 06 — Feature Failure Patterns
+# 05 — Feature Failure Patterns
 
 ## 1. 구현 목적 및 필요성
 ### 이 기능이 무엇인가

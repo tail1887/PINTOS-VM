@@ -1,4 +1,4 @@
-# 07 — Feature Validation by Tests
+# 06 — Feature Validation by Tests
 
 ## 1. 구현 목적 및 필요성
 ### 이 기능이 무엇인가
@@ -8,7 +8,7 @@
 테스트를 무작위로 돌리면 실패 원인 추적이 느려집니다. 검증 순서와 매핑을 고정해야 수정 루프가 짧아집니다.
 
 ### 무엇을 연결하는가 (기술 맥락)
-`1. feature/02~06`의 구현 규칙과 `2. testing/01~05` 테스트 문서를 1:1로 연결합니다.
+`1. feature/02~05`의 구현 규칙과 `2. testing/01~05` 테스트 문서를 1:1로 연결합니다.
 
 ### 완성의 의미 (결과 관점)
 실패 테스트가 곧바로 수정 함수로 연결되고, 검증 종료 기준이 명확해집니다.
@@ -45,13 +45,12 @@ flowchart TD
 - 규칙 2: 앞 테스트가 깨지면 뒤 테스트 해석을 미룬다.
 
 ### 4.2 기능-테스트 매핑 규칙
-- 위치: `1. feature/02~06`, `2. testing/01~05`
+- 위치: `1. feature/02~05`, `2. testing/01~05`
 - 역할: 실패 테스트를 해당 기능 문서와 즉시 연결해 수정 지점을 빠르게 좁힌다.
-- 규칙 1: Sleep Entry(`02`) <-> `01`, `02`, `03`
-- 규칙 2: Target Management(`03`) <-> `03`, `04`
-- 규칙 3: Wakeup Execution(`04`) <-> `03`, `04`
-- 규칙 4: Scheduler Integration(`05`) <-> `05`
-- 규칙 5: Failure Patterns(`06`)은 실패 원인 라벨링 기준으로 사용한다.
+- 규칙 1: Sleep Entry + Target Management(`02`) <-> `01`, `02`, `03`, `04`
+- 규칙 2: Wakeup Execution(`03`) <-> `03`, `04`
+- 규칙 3: Scheduler Integration(`04`) <-> `05`
+- 규칙 4: Failure Patterns(`05`)은 실패 원인 라벨링 기준으로 사용한다.
 
 ## 5. 테스팅 방법
 1. `2. testing/01-alarm-zero.md`
