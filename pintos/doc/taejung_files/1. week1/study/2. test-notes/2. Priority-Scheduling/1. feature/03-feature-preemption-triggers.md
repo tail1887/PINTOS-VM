@@ -45,22 +45,61 @@ sequenceDiagram
 
 ## 4. 구현 주석 (구현 필요 함수 전체)
 
-### 4.1 `thread_unblock()` 후 선점 판단
-- 위치: `pintos/threads/thread.c`
-- 역할: unblock된 스레드가 현재보다 높으면 즉시 선점 경로를 연계한다.
-- 규칙 1: `thread_unblock()` 호출 컨텍스트를 고려해 안전한 양보 경로를 선택한다.
-- 규칙 2: 선점 판단 로직은 READY 정렬 규칙과 동일 priority 기준을 사용한다.
+### 4.1 `try_preempt_current()` 헬퍼 구현 주석
+- 위치: `pintos/threads/thread.c` (static helper, `cmp_priority()` 근처 권장)
+- 역할: "현재 스레드보다 높은 READY 후보가 있으면 선점" 규칙을 공통 함수로 제공한다.
+- 규칙 1: `ready_list`가 비어있으면 즉시 반환한다.
+- 규칙 2: `list_front(&ready_list)`의 priority와 현재 스레드 priority를 비교해 선점 여부를 결정한다.
+- 규칙 3: 인터럽트 컨텍스트면 `intr_yield_on_return()`, 스레드 컨텍스트면 `thread_yield()`를 사용한다.
+- 금지 1: 각 호출 경로에서 선점 비교 로직을 중복 구현하지 않는다.
+- 금지 2: 인터럽트 컨텍스트에서 `thread_yield()`를 직접 호출하지 않는다.
 
-### 4.2 `thread_set_priority()` 구현 주석
+구현 체크 순서:
+1. helper 함수 시그니처를 `static void try_preempt_current(void)`로 선언한다.
+2. READY head와 현재 스레드 priority를 비교한다.
+3. 더 높은 후보가 있을 때만 컨텍스트 분기 후 양보/예약을 수행한다.
+4. 중복 양보를 피하기 위해 모든 경로는 helper만 호출하도록 통일한다.
+
+### 4.2 `thread_unblock()` 구현 주석 (경계 정리)
+- 위치: `pintos/threads/thread.c`
+- 역할: `BLOCKED -> READY` 전이와 정렬 삽입만 담당한다.
+- 규칙 1: `list_insert_ordered(..., cmp_priority, ...)`와 상태 전이(`THREAD_READY`)를 원자적으로 처리한다.
+- 규칙 2: 선점 트리거 로직은 helper(`try_preempt_current`) 호출 경로에서 처리한다.
+- 금지 1: `thread_unblock()` 내부에 선점 분기 코드를 직접 중복 구현하지 않는다.
+
+구현 체크 순서:
+1. 인터럽트 비활성 구간에서 READY 삽입/상태 전이를 완료한다.
+2. 함수 책임을 READY 전이로 한정했는지 확인한다.
+3. 선점 트리거는 별도 helper 호출 위치에서만 수행하도록 정리한다.
+
+### 4.3 `thread_set_priority()` 구현 주석
 - 위치: `pintos/threads/thread.c`
 - 역할: 현재 스레드 priority 변경 직후 실행 자격을 재평가한다.
-- 규칙 1: 현재 priority가 낮아져 더 높은 READY 스레드가 존재하면 `thread_yield()`를 호출한다.
-- 규칙 2: donation이 활성화된 경우 base priority와 effective priority 정책을 분리해 적용한다.
+- 규칙 1: base priority 갱신 직후 helper(`try_preempt_current`)를 호출해 선점 여부를 통일 판단한다.
+- 규칙 2: 직접 `list_front` 비교 코드를 복붙하지 않는다.
 
-### 4.3 `thread_create()` 연계 구현 주석
+구현 체크 순서:
+1. base priority를 갱신한다.
+2. `try_preempt_current()`를 호출한다.
+
+### 4.4 `thread_create()` 연계 구현 주석
 - 위치: `pintos/threads/thread.c`
 - 역할: 새로 생성된 고우선순위 스레드가 불필요하게 지연되지 않도록 한다.
-- 규칙 1: 생성 직후 READY 진입한 스레드가 더 높으면 선점 판단 경로를 수행한다.
+- 규칙 1: `thread_unblock(t)` 직후 helper(`try_preempt_current`)를 호출한다.
+- 규칙 2: 삽입 정책은 중복 구현하지 않고 `thread_unblock()` 경로를 그대로 사용한다.
+- 규칙 3: 선점 판단은 helper 1곳으로만 유지한다.
+
+구현 체크 순서:
+1. `thread_unblock(t)`로 READY 삽입을 위임한다.
+2. 바로 이어서 `try_preempt_current()`를 호출한다.
+3. 같은 이벤트에서 양보가 2회 발생하지 않는지 로그로 확인한다.
+
+### 4.5 `sema_up()` / `cond_signal()` / `timer_interrupt()` 연계 메모
+- 위치: `pintos/threads/synch.c`, `pintos/devices/timer.c`
+- 역할: unblock 이벤트를 만드는 경로에서 helper 호출 위치를 명확히 한다.
+- 규칙 1: 스레드 컨텍스트에서 호출되는 `sema_up()`/`cond_signal()` 경로는 `thread_unblock()` 이후 `try_preempt_current()`를 호출한다.
+- 규칙 2: 인터럽트 컨텍스트인 `timer_interrupt()` wake 루프 경로는 helper 대신 `intr_yield_on_return()` 예약 정책을 사용한다.
+- 금지 1: interrupt 경로에서 helper가 `thread_yield()`를 타지 않도록 호출 지점을 잘못 두지 않는다.
 
 ## 5. 테스팅 방법
 - `priority-preempt`: 고우선순위 READY 직후 선점 반영 확인

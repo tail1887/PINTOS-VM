@@ -217,6 +217,7 @@ thread_create (const char *name, int priority,
 	t->tf.eflags = FLAG_IF;
 
 	/* Add to run queue. */
+	// 생성 경로에서 삽입 정책을 중복 구현하지 않고 thread_unblock()으로 위임한다.
 	thread_unblock (t);
 
 	return tid;
@@ -247,20 +248,33 @@ thread_block (void) {
    update other data. */
 void
 thread_unblock (struct thread *t) {
-	enum intr_level old_level;
+	enum intr_level old_level; // 인터럽트 레벨을 저장하기 위한 변수
 
-	ASSERT (is_thread (t));
+	ASSERT (is_thread (t)); // 스레드 유효성 검사
 
-	old_level = intr_disable ();
-	ASSERT (t->status == THREAD_BLOCKED);
+	old_level = intr_disable (); // 인터럽트 비활성화
+	ASSERT (t->status == THREAD_BLOCKED); // 스레드 상태 검사
 
 	// 깨운 스레드를 우선순위 규칙에 맞게 ready_list에 복귀시킨다.
 	// ready_list 삽입은 단순 push_back이 아니라 list_insert_ordered(..., cmp_priority, ...)로 처리한다.
 	// THREAD_BLOCKED -> THREAD_READY 전이는 기존처럼 인터럽트 비활성 구간에서 수행한다.
 	list_insert_ordered(&ready_list, &t->elem, cmp_priority, NULL);
+
+	t->status = THREAD_READY; // 스레드 상태를 READY로 변경
 	
-	t->status = THREAD_READY;
-	intr_set_level (old_level);
+	// unblock된 스레드가 현재보다 높으면 즉시 선점 경로를 연계한다.
+	// thread_unblock() 호출 컨텍스트를 고려해 안전한 양보 경로를 선택한다.
+	// 선점 판단 로직은 READY 정렬 규칙과 동일 priority 기준을 사용한다.
+	if (t->priority > thread_current()->priority) {
+		if (intr_context()) { // 인터럽트 컨텍스트에 있으면 즉시 선점 경로를 연계한다.
+			intr_yield_on_return();
+		}
+		else {
+			thread_yield(); // 인터럽트 컨텍스트가 아니면 즉시 양보 경로를 연계한다.
+		}
+	}
+	
+	intr_set_level (old_level); // 인터럽트 레벨을 원래 상태로 복원
 }
 
 /* Returns the name of the running thread. */
