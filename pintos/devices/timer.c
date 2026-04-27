@@ -166,8 +166,6 @@ timer_interrupt (struct intr_frame *args UNUSED) {
 	ticks++;
 	thread_tick (); // 스레드 틱 증가
 
-	// wake 루프에서 고우선순위 스레드가 발견되면 인터럽트 복귀 시 선점을 예약한다.
-	bool need_preempt = false;
 	// sleep_list의 head부터 검사해 wakeup_tick <= 현재 tick인 스레드를 깨운다.
 	// 조건을 만족하는 스레드는 하나만이 아니라 연속 구간 전체를 반복 처리한다.
 	while (!list_empty (&sleep_list)
@@ -175,19 +173,6 @@ timer_interrupt (struct intr_frame *args UNUSED) {
 		// 깨울 때는 리스트에서 제거한 뒤 thread_unblock()으로 READY 전이한다.
 		struct thread *t = list_entry (list_pop_front (&sleep_list), struct thread, elem);
 		thread_unblock (t);
-
-		// 인터럽트 핸들러에서 깨운 스레드가 현재 스레드보다 우선순위가 높을 때 선점 예약을 건다.
-		// wake 루프에서 thread_unblock(t)를 호출한 직후, t->priority > thread_current()->priority 조건을 검사한다.
-		if (t->priority > thread_current ()->priority) {
-			// 위 조건을 만족한 스레드가 하나라도 있으면 need_preempt를 true로 기록한다.
-			need_preempt = true;
-		}
-	}
-
-	// 인터럽트 컨텍스트에서는 thread_yield()를 직접 호출하지 않는다.
-	// 조건을 만족한 스레드가 하나라도 있으면 intr_yield_on_return()을 호출해 인터럽트 복귀 시점 선점을 예약한다.
-	if (need_preempt) {
-		intr_yield_on_return ();
 	}
 }
 
