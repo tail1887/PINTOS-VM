@@ -85,6 +85,45 @@ cmp_priority (const struct list_elem *a,
 	return ta->priority > tb->priority;
 }
 
+static void try_preempt_current(void) {
+	// ready_list가 비어있으면 즉시 반환한다.
+	if(list_empty(&ready_list)) {
+		return;
+	}
+	struct thread *next = list_entry(list_front(&ready_list), struct thread, elem);
+	struct thread *curr = thread_current();
+	// list_front(&ready_list)의 priority와 현재 스레드 priority를 비교해 선점 여부를 결정한다.
+	if (next->priority > curr->priority) {
+		// 인터럽트 컨텍스트면 intr_yield_on_return(), 스레드 컨텍스트면 thread_yield()를 사용한다.
+		if(intr_context()){
+			intr_yield_on_return();
+		}
+		else {
+			thread_yield();
+		}
+	}	
+}
+
+// synch.c에서 호출할 수 있도록 헤더에 프로토타입을 선언한다.
+void thread_recalculate_priority(struct thread *t){
+
+	// 계산 기준은 max(base_priority, donations 최대 priority)로 통일한다.
+	int max_priority = t->base_priority;
+	struct list_elem *elem;
+	
+	// donation 리스트 순회 시 list_entry(e, struct thread, donation_elem) 기준을 사용한다.
+	for(elem = list_begin(&t->donation_candidates); elem != list_end(&t->donation_candidates); elem = list_next(elem)){
+		struct thread *donor = list_entry(elem, struct thread, donation_elem);
+		if(donor->effective_priority > max_priority){
+			max_priority = donor->effective_priority;
+		}
+	}
+
+	// 계산 결과를 스케줄 기준 필드(priority)에 동기화한다.
+	t->effective_priority = max_priority;
+	t->priority = max_priority;
+}
+
 
 // Global descriptor table for the thread_start.
 // Because the gdt will be setup after the thread_init, we should
@@ -219,7 +258,10 @@ thread_create (const char *name, int priority,
 	/* Add to run queue. */
 	// 생성 경로에서 삽입 정책을 중복 구현하지 않고 thread_unblock()으로 위임한다.
 	thread_unblock (t);
-
+	
+	// thread_unblock(t) 직후 helper(try_preempt_current)를 호출한다.
+	try_preempt_current();
+	
 	return tid;
 }
 
@@ -261,18 +303,7 @@ thread_unblock (struct thread *t) {
 	list_insert_ordered(&ready_list, &t->elem, cmp_priority, NULL);
 
 	t->status = THREAD_READY; // 스레드 상태를 READY로 변경
-	
-	// unblock된 스레드가 현재보다 높으면 즉시 선점 경로를 연계한다.
-	// thread_unblock() 호출 컨텍스트를 고려해 안전한 양보 경로를 선택한다.
-	// 선점 판단 로직은 READY 정렬 규칙과 동일 priority 기준을 사용한다.
-	if (t->priority > thread_current()->priority) {
-		if (intr_context()) { // 인터럽트 컨텍스트에 있으면 즉시 선점 경로를 연계한다.
-			intr_yield_on_return();
-		}
-		else {
-			thread_yield(); // 인터럽트 컨텍스트가 아니면 즉시 양보 경로를 연계한다.
-		}
-	}
+
 	
 	intr_set_level (old_level); // 인터럽트 레벨을 원래 상태로 복원
 }
@@ -346,7 +377,10 @@ thread_yield (void) {
 /* Sets the current thread's priority to NEW_PRIORITY. */
 void
 thread_set_priority (int new_priority) {
-	thread_current ()->priority = new_priority;
+	// base priority를 갱신한다.
+	thread_current()->priority = new_priority;
+	// base priority 갱신 직후 helper(try_preempt_current)를 호출해 선점 여부를 통일 판단한다.
+	try_preempt_current();
 }
 
 /* Returns the current thread's priority. */
@@ -440,11 +474,18 @@ init_thread (struct thread *t, const char *name, int priority) {
 
 	memset (t, 0, sizeof *t);
 	t->status = THREAD_BLOCKED;
-	t->wakeup_tick = NULL; // wakeup_tick 초기화 (수정)
+	t->wakeup_tick = 0; // wakeup_tick 초기화
 	strlcpy (t->name, name, sizeof t->name);
 	t->tf.rsp = (uint64_t) t + PGSIZE - sizeof (void *);
 	t->priority = priority;
 	t->magic = THREAD_MAGIC;
+	// init_thread()에서 base/effective, wait_on_lock, donation 리스트를 초기화한다.
+	t->base_priority = priority;
+	t->effective_priority = priority;
+	t->wait_on_lock = NULL;
+	list_init(&t->donation_candidates); // donation 리스트를 초기화한다.
+	// in_donation_list를 false로 초기화한다.
+	t->in_donation_list = false;
 }
 
 /* Chooses and returns the next thread to be scheduled.  Should

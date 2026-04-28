@@ -96,6 +96,22 @@ struct thread {
 	/* Shared between thread.c and synch.c. */
 	struct list_elem elem;              /* List element. */
 
+	// base priority와 effective priority를 구분할 수 있는 필드를 둔다.
+	int base_priority;
+	int effective_priority;
+
+	// 현재 기다리는 lock을 가리키는 필드(wait_on_lock)를 둔다.
+	struct lock *wait_on_lock;
+
+	// donation 후보 집합을 관리할 리스트 필드를 둔다.
+	struct list donation_candidates;
+
+	// donation 리스트 연결용 전용 노드 필드(donation_elem)를 둔다.
+	struct list_elem donation_elem;
+
+	// donation 리스트 등록 상태 추적 플래그(in_donation_list)를 둔다.
+	bool in_donation_list;
+
 #ifdef USERPROG
 	/* Owned by userprog/process.c. */
 	uint64_t *pml4;                     /* Page map level 4 */
@@ -143,5 +159,8 @@ int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
 
 void do_iret (struct intr_frame *tf);
+
+// synch.c에서 호출할 수 있도록 헤더에 프로토타입을 선언한다.
+void thread_recalculate_priority(struct thread *t);
 
 #endif /* threads/thread.h */

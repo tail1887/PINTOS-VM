@@ -109,9 +109,13 @@ sema_up (struct semaphore *sema) {
 	ASSERT (sema != NULL);
 
 	old_level = intr_disable ();
-	if (!list_empty (&sema->waiters))
-		thread_unblock (list_entry (list_pop_front (&sema->waiters),
-					struct thread, elem));
+	if (!list_empty (&sema->waiters)){
+		// 깨울 스레드를 가져온다.
+		thread_unblock (list_entry (list_pop_front (&sema->waiters), struct thread, elem));
+
+		// thread_unblock() 이후 try_preempt_current()를 호출한다.
+		try_preempt_current();
+	}
 	sema->value++;
 	intr_set_level (old_level);
 }
@@ -184,12 +188,49 @@ lock_init (struct lock *lock) {
    we need to sleep. */
 void
 lock_acquire (struct lock *lock) {
-	ASSERT (lock != NULL);
-	ASSERT (!intr_context ());
-	ASSERT (!lock_held_by_current_thread (lock));
+	ASSERT (lock != NULL); // lock이 NULL이면 에러 발생
+	ASSERT (!intr_context ()); // 인터럽트 컨텍스트에서는 호출할 수 없다.
+	ASSERT (!lock_held_by_current_thread (lock)); // 현재 스레드가 lock을 이미 소유하고 있으면 에러 발생
 
+	// 대기 진입 직전에 current->wait_on_lock = lock을 기록한다.
+	struct thread *current = thread_current();
+	current->wait_on_lock = lock;
+
+	// lock의 소유자가 있는 경우
+	if(lock->holder != NULL && current->effective_priority > lock->holder->effective_priority){
+		struct thread *owner = lock->holder;
+		//donor 등록 전 in_donation_list를 확인해 중복 삽입을 방지한다.
+		if(current->in_donation_list == false){
+			// owner의 donation 리스트에는 &current->donation_elem로 삽입한다(list_push_back 또는 ordered insert 정책 중 하나로 고정).
+			list_push_back(&owner->donation_candidates, &current->donation_elem);
+			current->in_donation_list = true;
+		}
+		int depth = 0;//중복 등록 방지 최대 깊이 8
+		while(owner != NULL && owner->wait_on_lock != NULL && depth < 8){
+			// owner보다 높은 대기자가 들어오면 owner effective priority를 갱신한다.
+			if(current->effective_priority > owner->effective_priority){
+				owner->effective_priority = current->effective_priority;
+				owner->priority= current->effective_priority;
+			}
+			// 체인 대기면 상위 owner로 반복 전파한다.
+			owner = owner->wait_on_lock->holder;
+			if(owner == NULL){
+				break;
+			}
+			else{
+				depth++;
+			}
+		}
+	}
+
+	//실제 lock 획득은 sema_down(&lock->semaphore)에서 수행하고
 	sema_down (&lock->semaphore);
-	lock->holder = thread_current ();
+
+	//획득 직후 lock->holder = current로 소유자를 기록한다.
+	lock->holder = current;
+
+	// sema_down() 이후 lock 획득 완료 시 wait_on_lock = NULL로 정리한다.
+	current->wait_on_lock = NULL;
 }
 
 /* Tries to acquires LOCK and returns true if successful or false
@@ -223,7 +264,9 @@ lock_release (struct lock *lock) {
 	ASSERT (lock_held_by_current_thread (lock));
 
 	lock->holder = NULL;
-	sema_up (&lock->semaphore);
+	sema_up (&lock->semaphore);// lock을 해제한다.
+	//donation 정리 후 priority 재계산
+	thread_recalculate_priority(thread_current());
 }
 
 /* Returns true if the current thread holds LOCK, false

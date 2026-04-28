@@ -166,13 +166,26 @@ timer_interrupt (struct intr_frame *args UNUSED) {
 	ticks++;
 	thread_tick (); // 스레드 틱 증가
 
+	bool need_preempt = false; // 선점 예약 여부를 저장하는 변수
+	
 	// sleep_list의 head부터 검사해 wakeup_tick <= 현재 tick인 스레드를 깨운다.
 	// 조건을 만족하는 스레드는 하나만이 아니라 연속 구간 전체를 반복 처리한다.
 	while (!list_empty (&sleep_list)
 		&& list_entry (list_front (&sleep_list), struct thread, elem)->wakeup_tick <= ticks) {
 		// 깨울 때는 리스트에서 제거한 뒤 thread_unblock()으로 READY 전이한다.
-		struct thread *t = list_entry (list_pop_front (&sleep_list), struct thread, elem);
-		thread_unblock (t);
+		thread_unblock (list_entry (list_pop_front (&sleep_list), struct thread, elem););
+		
+		// thread_unblock() 이후 try_preempt_current()를 호출한다.
+		try_preempt_current();
+
+		// 인터럽트 핸들러에서 깨운 스레드가 현재 스레드보다 우선순위가 높을 때 선점 예약을 건다.
+		if (t->priority > thread_current()->priority) {
+			need_preempt = true;
+		}
+	}
+	// 선점 예약이 필요하면 선점 예약을 건다.
+	if (need_preempt) {
+		intr_yield_on_return();
 	}
 }
 
