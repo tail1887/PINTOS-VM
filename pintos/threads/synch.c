@@ -109,14 +109,24 @@ sema_up (struct semaphore *sema) {
 	ASSERT (sema != NULL);
 
 	old_level = intr_disable ();
-	if (!list_empty (&sema->waiters)){
-		// 깨울 스레드를 가져온다.
-		thread_unblock (list_entry (list_pop_front (&sema->waiters), struct thread, elem));
-
-		// thread_unblock() 이후 try_preempt_current()를 호출한다.
+	sema->value++;
+	if (!list_empty (&sema->waiters)) {
+		// waiters에서 highest priority waiter를 선택한다.
+		struct list_elem *elem = list_begin(&sema->waiters);
+		int highest_priority = -1;
+		struct thread *highest_priority_waiter = NULL;
+		while (elem != list_end(&sema->waiters)) {
+			struct thread *waiter = list_entry(elem, struct thread, elem);
+			if (waiter->effective_priority > highest_priority) {
+				highest_priority = waiter->effective_priority;
+				highest_priority_waiter = waiter;
+			}
+			elem = list_next(elem);
+		}
+		list_remove(&highest_priority_waiter->elem);
+		thread_unblock (highest_priority_waiter);
 		try_preempt_current();
 	}
-	sema->value++;
 	intr_set_level (old_level);
 }
 
@@ -196,30 +206,28 @@ lock_acquire (struct lock *lock) {
 	struct thread *current = thread_current();
 	current->wait_on_lock = lock;
 
-	// lock의 소유자가 있는 경우
-	if(lock->holder != NULL && current->effective_priority > lock->holder->effective_priority){
+	// lock의 소유자가 있는 경우 donation을 적용하고 필요 시 체인 전파한다.
+	if (lock->holder != NULL) {
 		struct thread *owner = lock->holder;
-		//donor 등록 전 in_donation_list를 확인해 중복 삽입을 방지한다.
-		if(current->in_donation_list == false){
-			// owner의 donation 리스트에는 &current->donation_elem로 삽입한다(list_push_back 또는 ordered insert 정책 중 하나로 고정).
-			list_push_back(&owner->donation_candidates, &current->donation_elem);
+
+		// 직접 owner에게 들어가는 donation 후보를 한 번만 등록한다.
+		if (current->in_donation_list == false) {
+			list_push_back (&owner->donation_candidates, &current->donation_elem);
 			current->in_donation_list = true;
 		}
-		int depth = 0;// donation 체인 전파 최대 깊이 제한(8)
-		while(owner != NULL && owner->wait_on_lock != NULL && depth < 8){
-			// owner보다 높은 대기자가 들어오면 owner effective priority를 갱신한다.
-			if(current->effective_priority > owner->effective_priority){
+
+		// 첫 owner 포함 체인 전체에 priority를 전파한다.
+		int depth = 0;
+		while (owner != NULL && depth < 8) {
+			if (current->effective_priority > owner->effective_priority) {
 				owner->effective_priority = current->effective_priority;
-				owner->priority= current->effective_priority;
+				owner->priority = current->effective_priority;
 			}
-			// 체인 대기면 상위 owner로 반복 전파한다.
-			owner = owner->wait_on_lock->holder;
-			if(owner == NULL){
+			if (owner->wait_on_lock == NULL) {
 				break;
 			}
-			else{
-				depth++;
-			}
+			owner = owner->wait_on_lock->holder;
+			depth++;
 		}
 	}
 
@@ -263,8 +271,6 @@ lock_release (struct lock *lock) {
 	ASSERT (lock != NULL);
 	ASSERT (lock_held_by_current_thread (lock));
 
-	lock->holder = NULL;
-	
 	struct thread *current = thread_current();
 	// donation_candidates를 순회해 현재 lock 기여 donor를 list_remove(&donor->donation_elem)로 제거하고 donor->in_donation_list = false로 갱신한다.
 	struct list_elem *elem = list_begin(&current->donation_candidates);
@@ -280,6 +286,8 @@ lock_release (struct lock *lock) {
 		}
 
 	}
+	// lock->holder = NULL로 소유자를 해제한다.
+	lock->holder = NULL;
 
 	// thread_recalculate_priority()로 effective priority를 갱신한다.
 	thread_recalculate_priority(current);
@@ -363,9 +371,30 @@ cond_signal (struct condition *cond, struct lock *lock UNUSED) {
 	ASSERT (!intr_context ());
 	ASSERT (lock_held_by_current_thread (lock));
 
-	if (!list_empty (&cond->waiters))
-		sema_up (&list_entry (list_pop_front (&cond->waiters),
-					struct semaphore_elem, elem)->semaphore);
+	//waiters에서 highest priority waiter를 선택한다
+	struct list_elem *elem = list_begin(&cond->waiters);
+	int highest_priority = -1;
+	struct semaphore_elem *highest_priority_waiter = NULL;
+	while(elem != list_end(&cond->waiters)){
+		struct semaphore_elem *waiter = list_entry(elem, struct semaphore_elem, elem);
+		struct list_elem *next = list_next(elem);
+
+		if (!list_empty (&waiter->semaphore.waiters)) {
+			struct thread *t =
+				list_entry (list_front (&waiter->semaphore.waiters),
+						struct thread, elem);
+			if (t->effective_priority > highest_priority) {
+				highest_priority = t->effective_priority;
+				highest_priority_waiter = waiter;
+			}
+		}
+
+		elem = next;
+	}
+	if (highest_priority_waiter != NULL){
+		list_remove(&highest_priority_waiter->elem);
+		sema_up(&highest_priority_waiter->semaphore);
+	}
 }
 
 /* Wakes up all threads, if any, waiting on COND (protected by

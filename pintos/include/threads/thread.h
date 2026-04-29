@@ -162,5 +162,6 @@ void do_iret (struct intr_frame *tf);
 
 // synch.c에서 호출할 수 있도록 헤더에 프로토타입을 선언한다.
 void thread_recalculate_priority(struct thread *t);
+void try_preempt_current (void);
 
 #endif /* threads/thread.h */

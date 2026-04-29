@@ -85,7 +85,8 @@ cmp_priority (const struct list_elem *a,
 	return ta->priority > tb->priority;
 }
 
-static void try_preempt_current(void) {
+void
+try_preempt_current (void) {
 	// ready_list가 비어있으면 즉시 반환한다.
 	if(list_empty(&ready_list)) {
 		return;
@@ -119,17 +120,17 @@ void thread_recalculate_priority(struct thread *t){
 		}
 	}
 
-	// 계산 결과를 스케줄 기준 필드(priority)에 동기화한다.
+	// 계산 결과를 base_priority: 원래값
+    // effective_priority: donation 반영값
+    // priority: 스케줄러/비교/ready list에서 실제 참조하는 값(= effective_priority와 항상 동일)
 	t->effective_priority = max_priority;
 	t->priority = max_priority;
 }
-
 
 // Global descriptor table for the thread_start.
 // Because the gdt will be setup after the thread_init, we should
 // setup temporal gdt first.
 static uint64_t gdt[3] = { 0, 0x00af9a000000ffff, 0x00cf92000000ffff };
-
 /* Initializes the threading system by transforming the code
    that's currently running into a thread.  This can't work in
    general and it is possible in this case only because loader.S
@@ -378,7 +379,11 @@ thread_yield (void) {
 void
 thread_set_priority (int new_priority) {
 	// base priority를 갱신한다.
-	thread_current()->priority = new_priority;
+	thread_current()->base_priority = new_priority;
+
+	// thread_recalculate_priority()를 호출해 effective를 정합시킨다.
+	thread_recalculate_priority(thread_current());
+
 	// base priority 갱신 직후 helper(try_preempt_current)를 호출해 선점 여부를 통일 판단한다.
 	try_preempt_current();
 }
