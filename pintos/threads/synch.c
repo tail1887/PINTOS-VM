@@ -264,18 +264,27 @@ lock_release (struct lock *lock) {
 	ASSERT (lock_held_by_current_thread (lock));
 
 	lock->holder = NULL;
-	sema_up (&lock->semaphore);// lock을 해제한다.
 	
-	// 현재 lock 기여분만 제거한 뒤 thread_recalculate_priority()를 호출한다.
-	
-	// 남은 donation이 없으면 base priority로 복원한다.
+	struct thread *current = thread_current();
+	// donation_candidates를 순회해 현재 lock 기여 donor를 list_remove(&donor->donation_elem)로 제거하고 donor->in_donation_list = false로 갱신한다.
+	struct list_elem *elem = list_begin(&current->donation_candidates);
+	while(elem != list_end(&current->donation_candidates)){
+		struct thread *donor = list_entry(elem, struct thread, donation_elem);
+		
+		if(donor->wait_on_lock == lock){
+			donor->in_donation_list = false;
+			elem = list_remove(elem);
+		}
+		else{
+			elem = list_next(elem);
+		}
 
-	// donation_candidates를 순회하면서 donor->wait_on_lock == releasing_lock인 donor만 제거한다.
+	}
 
-	//donor 제거 시 in_donation_list = false를 함께 갱신한다.
-
-	//donation 정리 후 priority 재계산
-	thread_recalculate_priority(thread_current());
+	// thread_recalculate_priority()로 effective priority를 갱신한다.
+	thread_recalculate_priority(current);
+	// 그 뒤 sema_up()을 호출해 waiter를 깨운다.
+	sema_up(&lock->semaphore);
 }
 
 /* Returns true if the current thread holds LOCK, false
