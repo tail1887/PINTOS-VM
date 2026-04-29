@@ -202,41 +202,42 @@ lock_acquire (struct lock *lock) {
 	ASSERT (!intr_context ()); // 인터럽트 컨텍스트에서는 호출할 수 없다.
 	ASSERT (!lock_held_by_current_thread (lock)); // 현재 스레드가 lock을 이미 소유하고 있으면 에러 발생
 
-	// 대기 진입 직전에 current->wait_on_lock = lock을 기록한다.
 	struct thread *current = thread_current();
+	// 먼저 current->wait_on_lock = lock을 기록한다.
 	current->wait_on_lock = lock;
+	// wait_on_lock이란?
 
-	// lock의 소유자가 있는 경우 donation을 적용하고 필요 시 체인 전파한다.
+	// lock의 소유자가 있는지 확인한다.
 	if (lock->holder != NULL) {
 		struct thread *owner = lock->holder;
-
 		// 직접 owner에게 들어가는 donation 후보를 한 번만 등록한다.
 		if (current->in_donation_list == false) {
 			list_push_back (&owner->donation_candidates, &current->donation_elem);
 			current->in_donation_list = true;
 		}
-
 		// 첫 owner 포함 체인 전체에 priority를 전파한다.
-		int depth = 0;
+		int depth = 0; // 체인 깊이
 		while (owner != NULL && depth < 8) {
+			// 락 보유쓰레드와 현재 쓰레드의 effective_priority를 비교를 하는데 
+			// effective_priority는 받은 도네이션들과 기본 우선순위중에 최대값을 저장해놓은 필드
 			if (current->effective_priority > owner->effective_priority) {
+				// 그리고 현재쓰레드가 더 높으면 도네이션을 진행. 
+				// 스케줄러에서 사용하는 필드인 priority에 동기화.
 				owner->effective_priority = current->effective_priority;
 				owner->priority = current->effective_priority;
 			}
 			if (owner->wait_on_lock == NULL) {
 				break;
 			}
+			// // 락오너가 또 기다리는 다른 락이 있으면 그 락의 오너로 이동.
 			owner = owner->wait_on_lock->holder;
 			depth++;
 		}
 	}
-
 	//실제 lock 획득은 sema_down(&lock->semaphore)에서 수행하고
 	sema_down (&lock->semaphore);
-
 	//획득 직후 lock->holder = current로 소유자를 기록한다.
 	lock->holder = current;
-
 	// sema_down() 이후 lock 획득 완료 시 wait_on_lock = NULL로 정리한다.
 	current->wait_on_lock = NULL;
 }
@@ -270,13 +271,11 @@ void
 lock_release (struct lock *lock) {
 	ASSERT (lock != NULL);
 	ASSERT (lock_held_by_current_thread (lock));
-
 	struct thread *current = thread_current();
-	// donation_candidates를 순회해 현재 lock 기여 donor를 list_remove(&donor->donation_elem)로 제거하고 donor->in_donation_list = false로 갱신한다.
+	// donation_candidates를 순회하면서 현재 lock을 기다리는 donor를 찾는다.
 	struct list_elem *elem = list_begin(&current->donation_candidates);
 	while(elem != list_end(&current->donation_candidates)){
 		struct thread *donor = list_entry(elem, struct thread, donation_elem);
-		
 		if(donor->wait_on_lock == lock){
 			donor->in_donation_list = false;
 			elem = list_remove(elem);
@@ -284,11 +283,9 @@ lock_release (struct lock *lock) {
 		else{
 			elem = list_next(elem);
 		}
-
 	}
 	// lock->holder = NULL로 소유자를 해제한다.
 	lock->holder = NULL;
-
 	// thread_recalculate_priority()로 effective priority를 갱신한다.
 	thread_recalculate_priority(current);
 	// 그 뒤 sema_up()을 호출해 waiter를 깨운다.
