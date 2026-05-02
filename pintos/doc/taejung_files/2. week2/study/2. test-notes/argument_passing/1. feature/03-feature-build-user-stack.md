@@ -28,7 +28,7 @@ sequenceDiagram
   SB->>US: NULL sentinel push
   SB->>US: argv 포인터들 역순 push
   SB->>US: fake return address push
-  SB->>SB: argv_base, rsp 확정
+  SB->>SB: argv_user_addr, rsp 확정
 ```
 
 1. `rsp = USER_STACK`에서 시작한다.
@@ -36,8 +36,9 @@ sequenceDiagram
 3. 포인터 push 전에 8바이트 정렬을 맞춘다.
 4. `NULL` 센티널을 먼저 push한다.
 5. 문자열 주소들을 역순 push해 `argv[0]`이 가장 낮은 주소에 오게 한다.
-6. 가짜 return address(0)를 push한다.
-7. 최종 `argv_base`와 `rsp`를 반환한다.
+6. 포인터 배열의 시작 주소를 `argv_user_addr`로 호출부에 돌려준다.
+7. 가짜 return address(0)를 push한다.
+8. 최종 `rsp`를 `intr_frame`에 반영한다.
 
 ## 4. 기능별 가이드 (개념/흐름 + 구현 주석 위치)
 ### 4.1 기능 A: 문자열 블록 배치
@@ -54,7 +55,7 @@ sequenceDiagram
 - 역할: `argv` 포인터 배열 생성
 - 규칙 1: `argv[argc] == NULL`을 먼저 보장
 - 규칙 2: 포인터는 문자열 주소 배열을 역순 순회해 push
-- 규칙 3: push 완료 후 `argv_base` 주소 저장
+- 규칙 3: push 완료 후 `argv_user_addr`에 포인터 배열 시작 주소 저장
 
 ### 4.3 기능 C: 정렬/프레임 마무리
 #### 구현 주석
@@ -62,6 +63,7 @@ sequenceDiagram
 - 역할: ABI 정렬과 fake return address 처리
 - 규칙 1: 포인터 배열 전에 8바이트 정렬
 - 규칙 2: 마지막에 fake return address 0 push
+- 규칙 3: 각 push 전후로 스택 페이지 하한을 넘지 않는지 확인
 - 금지 1: 정렬 없이 바로 포인터 push
 
 ## 5. 구현 주석 (위치별 정리)
@@ -80,25 +82,26 @@ sequenceDiagram
 ### 5.2 `build_user_stack_args()` 인자 배치 루프
 - 위치: `pintos/userprog/process.c`
 - 역할: 문자열/포인터 push 연산의 전담 스택 빌더
-- 규칙 1: push 연산 단위를 함수화해 중복 버그 줄임
+- 규칙 1: `sp`를 바이트 단위로 낮춘 뒤 해당 위치에 직접 값을 쓴다
 - 규칙 2: 바이트 단위 경계 검사 누락 금지
 
 구현 체크 순서:
 1. 문자열을 역순으로 push하고 시작 주소를 `arg_addrs[]`에 기록한다.
 2. 8바이트 정렬을 맞춘 뒤 `NULL` 센티널을 push한다.
 3. `arg_addrs[]`를 역순 순회해 `argv` 포인터들을 push한다.
-4. 마지막에 fake return address(0)를 push해 프레임을 마무리한다.
+4. 포인터 배열 시작 주소를 `argv_user_addr`에 저장한다.
+5. 마지막에 fake return address(0)를 push하고 `user_if->rsp`를 갱신한다.
 
-### 5.3 `debug_user_stack_layout()` 디버깅 관측점
+### 5.3 `hex_dump()` 디버깅 관측점
 - 위치: `pintos/userprog/process.c` (임시 로그)
 - 역할: 실패 시 스택 레이아웃 확인
 - 규칙 1: `hex_dump()`로 `rsp` 인근 덤프 확인
-- 규칙 2: `argv_base`, `argv[0]`, `argv[argc]` 주소/값 동시 점검
+- 규칙 2: `argv_user_addr`, `argv[0]`, `argv[argc]` 주소/값 동시 점검
 
 구현 체크 순서:
 1. 실패 재현 시점의 최종 `rsp`를 먼저 기록한다.
 2. `hex_dump()`로 문자열 블록/포인터 블록 위치를 확인한다.
-3. `argv_base`, `argv[0]`, `argv[argc]`를 함께 검증한다.
+3. `argv_user_addr`, `argv[0]`, `argv[argc]`를 함께 검증한다.
 4. 정렬/센티널/포인터 순서 중 깨진 지점을 기준으로 루프를 역추적한다.
 
 ## 6. 테스팅 방법

@@ -32,14 +32,16 @@ sequenceDiagram
   participant P as process_exec
   participant L as load
   participant S as setup_stack
+  participant B as build_user_stack_args
   participant IF as intr_frame
   participant U as User _start
 
   P->>P: cmd_line 토큰화
   P->>L: argv[0] 기준 실행 파일 로드
   L->>S: 초기 user stack 준비
-  S->>S: 문자열/argv/정렬/센티널 배치
-  S->>IF: argc, argv_base 전달
+  P->>B: 문자열/argv/정렬/센티널 배치
+  B->>P: argv_user_addr 반환
+  P->>IF: argc, argv_user_addr 전달
   IF->>U: RDI/RSI 세팅 후 유저 진입
 ```
 
@@ -47,9 +49,11 @@ sequenceDiagram
 
 1. 커맨드라인을 공백 기준으로 분리한다.
 2. 첫 토큰으로 실행 파일 로드 경로를 진행한다.
-3. 사용자 스택에 인자 문자열과 포인터 배열을 배치한다.
-4. `argv[argc] = NULL`과 정렬 조건을 보장한다.
-5. 인터럽트 프레임 레지스터를 세팅해 유저 프로그램을 시작한다.
+3. `load()`가 `setup_stack()`을 통해 빈 사용자 스택 페이지와 초기 `rsp`를 만든다.
+4. `build_user_stack_args()`가 사용자 스택에 인자 문자열과 포인터 배열을 배치한다.
+5. `argv[argc] = NULL`과 정렬 조건을 보장한다.
+6. 스택 안의 `argv[0]` 위치를 `argv_user_addr`로 저장한다.
+7. 인터럽트 프레임 레지스터를 세팅해 유저 프로그램을 시작한다.
 
 ---
 

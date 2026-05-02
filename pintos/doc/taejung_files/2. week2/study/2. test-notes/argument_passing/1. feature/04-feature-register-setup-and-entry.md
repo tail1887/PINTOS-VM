@@ -22,18 +22,19 @@
 ## 3. 시퀀스와 단계별 흐름
 ```mermaid
 flowchart TD
-  A[stack build 완료] --> B[argv_base 확보]
+  A[stack build 완료] --> B[argv_user_addr 확보]
   B --> C[if_.R.rdi = argc]
-  C --> D[if_.R.rsi = argv_base]
+  C --> D[if_.R.rsi = argv_user_addr]
   D --> E[if_.rsp = user rsp]
   E --> F[if_.rip = user entry]
   F --> G[do_iret로 유저 진입]
 ```
 
-1. 스택 빌더에서 최종 `rsp`, `argv_base`를 받는다.
-2. `intr_frame`에 `rdi=argc`, `rsi=argv_base`를 쓴다.
-3. `rsp`와 `rip`를 사용자 진입에 맞게 점검한다.
-4. 프레임 세팅 성공 시에만 유저 모드로 전환한다.
+1. 스택 빌더에서 최종 `rsp`, `argv_user_addr`를 받는다.
+2. `argv_user_addr`가 사용자 가상 주소인지 먼저 확인한다.
+3. `intr_frame`에 `rdi=argc`, `rsi=argv_user_addr`를 쓴다.
+4. `rsp`를 사용자 진입에 맞게 점검한다.
+5. 프레임 세팅 성공 시에만 유저 모드로 전환한다.
 
 ## 4. 기능별 가이드 (개념/흐름 + 구현 주석 위치)
 ### 4.1 기능 A: 인자 레지스터 세팅
@@ -41,7 +42,7 @@ flowchart TD
 - 위치: `pintos/userprog/process.c`의 로드 완료 후 구간
 - 역할: `_start` 호출 인자 레지스터 전달
 - 규칙 1: `RDI <- argc`
-- 규칙 2: `RSI <- argv_base`
+- 규칙 2: `RSI <- argv_user_addr`
 - 금지 1: 포인터가 커널 주소인지 검증 없이 전달
 
 ### 4.2 기능 B: 진입 프레임 무결성 점검
@@ -49,7 +50,7 @@ flowchart TD
 - 위치: `pintos/userprog/process.c`
 - 역할: 유저 진입 직전 프레임 상태 검증
 - 규칙 1: `RSP`는 사용자 영역 주소
-- 규칙 2: `RIP`는 로더가 반환한 유효 엔트리
+- 규칙 2: `RIP`는 `load()`가 세팅한 엔트리를 그대로 사용
 - 규칙 3: 실패 시 유저 진입하지 않고 에러 경로로 반환
 
 ### 4.3 기능 C: 실패 경로 일관성 유지
@@ -69,20 +70,20 @@ flowchart TD
 구현 체크 순서:
 1. 파싱, 로드, 스택 빌드의 성공 여부를 순서대로 확인한다.
 2. 하나라도 실패하면 유저 진입 단계로 넘어가지 않는다.
-3. 성공 경로에서만 `intr_frame` 필드 세팅으로 진입한다.
+3. 성공 경로에서만 `argv_user_addr` 기반 레지스터 세팅으로 진입한다.
 4. 실패 경로는 자원 정리 후 단일 반환 규칙으로 통일한다.
 
 ### 5.2 `set_user_entry_registers()` `intr_frame` 인자 필드
 - 위치: `pintos/userprog/process.c` (`if_.R.*`)
 - 역할: ABI 인자 전달
 - 규칙 1: `argc`는 정수 그대로 전달
-- 규칙 2: `argv_base`는 사용자 가상 주소 그대로 전달
+- 규칙 2: `argv_user_addr`는 사용자 가상 주소 그대로 전달
 
 구현 체크 순서:
-1. `if_.R.rdi = argc`를 먼저 설정한다.
-2. `if_.R.rsi = argv_base`를 설정한다.
-3. `argv_base`가 사용자 가상 주소인지 점검한다.
-4. 커널 주소 전달 가능성을 차단한 뒤 다음 필드 세팅으로 진행한다.
+1. `user_if`, `argc`, `argv_user_addr` 입력을 먼저 검증한다.
+2. `argv_user_addr`가 사용자 가상 주소인지 점검한다.
+3. `if_.R.rdi = argc`를 설정한다.
+4. `if_.R.rsi = argv_user_addr`를 설정한다.
 
 ### 5.3 `validate_user_entry_frame()` 유저 전환 직전 점검
 - 위치: `pintos/userprog/process.c`
@@ -92,9 +93,8 @@ flowchart TD
 
 구현 체크 순서:
 1. `RSP`가 사용자 스택 영역인지 확인한다.
-2. `RIP`가 로더가 준 유효 엔트리인지 확인한다.
-3. 최소 입력(`args-none`)에서도 동일 점검 로직이 타는지 확인한다.
-4. 점검 실패 시 `do_iret` 호출 없이 graceful fail로 종료한다.
+2. 최소 입력(`args-none`)에서도 동일 점검 로직이 타는지 확인한다.
+3. 점검 실패 시 `do_iret` 호출 없이 graceful fail로 종료한다.
 
 ## 6. 테스팅 방법
 - 최소 경로: `args-none`
