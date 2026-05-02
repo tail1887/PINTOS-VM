@@ -22,15 +22,213 @@
 #include "vm/vm.h"
 #endif
 
+#define MAX_ARGS 64 
+
 static void process_cleanup (void);
 static bool load (const char *file_name, struct intr_frame *if_);
 static void initd (void *f_name);
 static void __do_fork (void *);
 
+// 헬퍼 함수 (arg_parsing, arg_stack)
+static int
+arg_parsing(char *file_name, char **argv)
+{
+    char *save_ptr;
+    char *token = strtok_r(file_name, " ", &save_ptr);
+    int argc = 0;
+
+    while (token != NULL) {
+        argv[argc] = token;
+        argc++;
+	
+        token = strtok_r(NULL, " ", &save_ptr);
+    }
+
+    argv[argc] = NULL;
+
+	return argc; 
+}
+
+static void arg_stack(char **argv, int argc, struct intr_frame *if_) {	
+	// 1. 문자열이 실제로 복사된 user stack 주소를 저장할 배열을 만든다 
+	char *user_stack_addr[MAX_ARGS]; 
+	void *fake_address = 0; 
+
+	// 2. argv 문자열들을 뒤에서부터 user stack에 복사한다
+	for (int i = argc-1; i >= 0; i--) {
+		int len = strlen(argv[i]) + 1; 		
+		if (len % 8 != 0) {
+			int modular = len % 8; 
+			
+			if_->rsp -= len + (8 - modular); 
+			user_stack_addr[i] = if_->rsp; 		
+						
+			memcpy(if_->rsp, argv[i], len);		 		 
+			memset(if_->rsp + len, 0, 8 - modular); 	
+		} else {		
+			if_->rsp -= len; 
+			user_stack_addr[i] = if_->rsp; 					
+			memcpy(if_->rsp, argv[i], len);		 		 
+		}
+	}
+
+	argv[argc] = NULL; 
+	if_->rsp -= 8; 
+	memcpy(if_->rsp, &argv[argc], 8);
+	
+	for (int i = argc-1; i >= 0; i--) {
+		if_->rsp -= 8; 
+		memcpy(if_->rsp, &user_stack_addr[i], 8); 
+	} 
+	if_->R.rdi = argc; 
+	if_->R.rsi = (uint64_t) if_->rsp;
+	
+	// fake return address 
+	if_->rsp -= 8;	
+	memcpy(if_->rsp, &fake_address, 8); 
+}
 /* General process initializer for initd and other process. */
 static void
 process_init (void) {
 	struct thread *current = thread_current ();
+}
+
+// 최대 인자 수 정의
+#define ARG_MAX 128
+// 최대 인자 길이 정의
+#define MAX_ARG_LENGTH 128
+
+bool parse_command_line_args(char *cmd_line, int *argc, char **argv){
+	// strtok_r() 첫 호출로 시작 토큰을 가져온다.
+	char *save_ptr = NULL;
+	char *token = strtok_r(cmd_line, " ", &save_ptr);
+	*argc = 0;
+	if (token == NULL){
+		return false;
+	}
+	// 	토큰을 argv_temp[argc]에 저장한 뒤 argc를 증가시킨다.
+	if(*argc >= ARG_MAX){
+		return false;
+	}
+	argv[*argc] = token;
+	(*argc)++;
+
+	// 매 반복마다 최대 토큰 수/길이 경계를 검사한다.
+	while(token != NULL){
+		token = strtok_r(NULL, " ", &save_ptr);
+		if (token == NULL){
+			break;
+		}
+		if(*argc >= ARG_MAX){
+			return false;
+		}
+		argv[*argc] = token;
+		(*argc)++;
+	}
+
+	return true;
+}
+
+bool finalize_parsed_args(int argc, char **argv){
+	// 첫 토큰(실행 파일명) 존재 여부를 최종 확인한다.
+	if(argv == NULL){
+		return false;
+	}
+	
+	if(argc <= 0 || argv[0] == NULL){
+		return false;
+	}
+
+	return true;
+}
+
+
+static bool build_user_stack_args(struct intr_frame *user_if, int argc, char **argv, uintptr_t *argv_user_addr){
+	uintptr_t sp;
+	char *arg_addrs[ARG_MAX];
+	int i;
+	// 입력 검증
+	if (argc <= 0 || argc > ARG_MAX || argv == NULL || user_if == NULL || argv_user_addr == NULL)
+		return false;
+	// 문자열을 역순으로 push하고 시작 주소를 arg_addrs[]에 기록한다.
+	sp = (uintptr_t) user_if->rsp;
+	
+	for(i = argc - 1; i >= 0; i--){
+		size_t len = strlen(argv[i]) + 1;
+		sp -= len;
+
+		if(sp < USER_STACK - PGSIZE){
+			return false;
+		}
+
+		memcpy((void *) sp, argv[i], len);
+		arg_addrs[i] = (char *) sp;
+	}
+	// 8바이트 정렬을 맞춘 뒤 NULL 센티널을 push한다.
+	sp &= ~0x7;
+
+	if(sp < USER_STACK - PGSIZE){
+		return false;
+	}
+	
+	sp -= sizeof(char *);
+	
+	if(sp < USER_STACK - PGSIZE){
+		return false;
+	}
+
+	*(char **) sp = NULL;
+	
+	// arg_addrs[]를 역순 순회해 argv 포인터들을 push한다.
+	for(i = argc - 1; i >= 0; i--){
+		sp -= sizeof(char *);
+
+		if(sp < USER_STACK - PGSIZE){
+			return false;
+		}
+
+		*(char **) sp = arg_addrs[i];
+	}
+	
+	// 마지막에 fake return address(0)를 push해 프레임을 마무리한다.
+	*argv_user_addr = sp;
+
+	sp -= sizeof(char *);
+
+	if(sp < USER_STACK - PGSIZE){
+		return false;
+	}
+
+	*(void **) sp = NULL;
+
+	user_if->rsp = sp;
+	return true;
+}
+
+bool set_user_entry_registers(struct intr_frame *user_if, int argc, uintptr_t argv_user_addr){
+	// 입력 검증하기
+	if(user_if == NULL || argc <= 0 || argv_user_addr == 0)
+		return false;
+	//argv_user_addr가 사용자 가상 주소인지 점검한다.
+	if(!is_user_vaddr((void *) argv_user_addr)){
+		return false;
+	}
+	// if_.R.rdi = argc를 먼저 설정한다.
+	user_if->R.rdi = argc;
+	// if_.R.rsi = argv_user_addr를 설정한다.
+	user_if->R.rsi = argv_user_addr;
+	return true;
+}
+
+bool validate_user_entry_frame(struct intr_frame *user_if){
+	// 입력 검증하기
+	if(user_if == NULL)
+		return false;
+	// RSP가 사용자 스택 영역인지 확인한다.
+	if(!is_user_vaddr((void *) user_if->rsp)){
+		return false;
+	}
+	return true;
 }
 
 /* Starts the first userland program, called "initd", loaded from FILE_NAME.
@@ -40,18 +238,31 @@ process_init (void) {
  * Notice that THIS SHOULD BE CALLED ONCE. */
 tid_t
 process_create_initd (const char *file_name) {
-	char *fn_copy;
-	tid_t tid;
-
+	char *fn_copy; // file_name 문자열을 복사해서 담아두는 별도의 메모리 페이지 
+	tid_t tid; // 고유한 쓰레드 ID 
+	
 	/* Make a copy of FILE_NAME.
 	 * Otherwise there's a race between the caller and load(). */
 	fn_copy = palloc_get_page (0);
-	if (fn_copy == NULL)
+	if (fn_copy == NULL) {
 		return TID_ERROR;
+	}
 	strlcpy (fn_copy, file_name, PGSIZE);
 
+    // char *token = strtok_r(file_name, " ", &save_ptr);
 	/* Create a new thread to execute FILE_NAME. */
-	tid = thread_create (file_name, PRI_DEFAULT, initd, fn_copy);
+	char *prog_copy; 
+	prog_copy = palloc_get_page (0); 
+
+	if (prog_copy == NULL) {
+		return TID_ERROR; 
+	}
+	strlcpy(prog_copy, file_name, PGSIZE); 
+	prog_copy = strtok_r(prog_copy, " ", &file_name); 
+
+	tid = thread_create (prog_copy, PRI_DEFAULT, initd, fn_copy);
+	palloc_free_page(prog_copy); 
+
 	if (tid == TID_ERROR)
 		palloc_free_page (fn_copy);
 	return tid;
@@ -60,12 +271,13 @@ process_create_initd (const char *file_name) {
 /* A thread function that launches first user process. */
 static void
 initd (void *f_name) {
+
 #ifdef VM
 	supplemental_page_table_init (&thread_current ()->spt);
 #endif
 
 	process_init ();
-
+	
 	if (process_exec (f_name) < 0)
 		PANIC("Fail to launch initd\n");
 	NOT_REACHED ();
@@ -158,12 +370,61 @@ error:
 	thread_exit ();
 }
 
+
 /* Switch the current execution context to the f_name.
  * Returns -1 on fail. */
 int
 process_exec (void *f_name) {
 	char *file_name = f_name;
 	bool success;
+	// 기능 1: 커맨드라인 파싱 (토큰화) 
+	
+	// process_exec() 파싱 시작부
+	
+	// file_name NULL 여부를 먼저 검사한다.
+	if (file_name == NULL){
+		return -1;
+	}
+	
+	// 길이가 너무 길지 않은지 확인한다. 
+	if(strnlen(file_name, PGSIZE) == PGSIZE){
+		palloc_free_page (file_name);
+		return -1;
+	}
+
+	// 공백만 있는 입력인지 확인한다.
+	if(strspn(file_name, " ") == strlen(file_name)){
+		palloc_free_page (file_name);
+		return -1;
+	}
+	
+	// 쓰기 가능한 복사 버퍼를 할당한다.
+	char *cmd_line = palloc_get_page (0);
+	if (cmd_line == NULL){
+		palloc_free_page (file_name);
+		return -1;
+	}
+
+	// 복사 버퍼에 복사한다.
+	strlcpy(cmd_line, file_name, PGSIZE);
+
+	// parse_command_line_args() 토큰화 루프
+	int argc = 0;
+	char *argv[ARG_MAX];
+	success = parse_command_line_args(cmd_line, &argc, argv);
+	if (!success){
+		palloc_free_page (file_name);
+		palloc_free_page (cmd_line);
+		return -1;
+	}
+	
+	// finalize_parsed_args() 파싱 결과 반환
+	success = finalize_parsed_args(argc, argv);
+	if (!success){
+		palloc_free_page (file_name);
+		palloc_free_page (cmd_line);
+		return -1;
+	}
 
 	/* We cannot use the intr_frame in the thread structure.
 	 * This is because when current thread rescheduled,
@@ -175,16 +436,47 @@ process_exec (void *f_name) {
 
 	/* We first kill the current context */
 	process_cleanup ();
+	
+	char *argv[MAX_ARGS]; 
+	// TODO: Argument 분리해서 파일명만 load()로 넘기기 
 
-	/* And then load the binary */
-	success = load (file_name, &_if);
-
-	/* If load failed, quit. */
-	palloc_free_page (file_name);
-	if (!success)
+	// 기능 2: 사용자 스택 레이아웃 구성 부분 시작 (ABI 계약)
+	uintptr_t argv_user_addr = 0;
+	// load() 기본 매핑
+	success = load(argv[0], &_if);
+	if (!success){
+		palloc_free_page (file_name);
+		palloc_free_page (cmd_line);
 		return -1;
+	}
+	else{
+		// build_user_stack_args() 인자 배치 루프
+		success = build_user_stack_args(&_if, argc, argv, &argv_user_addr);
+		if (!success){
+			palloc_free_page (file_name);
+			palloc_free_page (cmd_line);
+			return -1;
+		}
+	}
 
-	/* Start switched process. */
+	// 기능 3: 레지스터 설정과 유저 진입 경계
+	// set_user_entry_registers() intr_frame 인자 필드
+	success = set_user_entry_registers(&_if, argc, argv_user_addr);
+	if (!success){
+		palloc_free_page (file_name);
+		palloc_free_page (cmd_line);
+		return -1;
+	}
+	// validate_user_entry_frame() 유저 전환 직전 점검
+	success = validate_user_entry_frame(&_if);
+	if (!success){
+		palloc_free_page (file_name);
+		palloc_free_page (cmd_line);
+		return -1;
+	}
+	// do_iret() 유저 진입
+	palloc_free_page (file_name);
+	palloc_free_page (cmd_line);
 	do_iret (&_if);
 	NOT_REACHED ();
 }
@@ -204,7 +496,10 @@ process_wait (tid_t child_tid UNUSED) {
 	/* XXX: Hint) The pintos exit if process_wait (initd), we recommend you
 	 * XXX:       to add infinite loop here before
 	 * XXX:       implementing the process_wait. */
-	return -1;
+    for (int i = 0; i < 1000; i++) {
+        thread_yield();
+    }
+    return -1;
 }
 
 /* Exit the process. This function is called by thread_exit (). */
@@ -305,16 +600,17 @@ struct ELF64_PHDR {
 	uint64_t p_memsz;
 	uint64_t p_align;
 };
-
 /* Abbreviations */
 #define ELF ELF64_hdr
 #define Phdr ELF64_PHDR
+
 
 static bool setup_stack (struct intr_frame *if_);
 static bool validate_segment (const struct Phdr *, struct file *);
 static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
 		uint32_t read_bytes, uint32_t zero_bytes,
 		bool writable);
+
 
 /* Loads an ELF executable from FILE_NAME into the current thread.
  * Stores the executable's entry point into *RIP
@@ -335,7 +631,7 @@ load (const char *file_name, struct intr_frame *if_) {
 		goto done;
 	process_activate (thread_current ());
 
-	/* Open executable file. */
+	/* Open executable file. */	
 	file = filesys_open (file_name);
 	if (file == NULL) {
 		printf ("load: %s: open failed\n", file_name);
@@ -407,6 +703,7 @@ load (const char *file_name, struct intr_frame *if_) {
 		}
 	}
 
+	
 	/* Set up stack. */
 	if (!setup_stack (if_))
 		goto done;
@@ -416,7 +713,7 @@ load (const char *file_name, struct intr_frame *if_) {
 
 	/* TODO: Your code goes here.
 	 * TODO: Implement argument passing (see project2/argument_passing.html). */
-
+	
 	success = true;
 
 done:
