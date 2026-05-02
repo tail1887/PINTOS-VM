@@ -46,7 +46,7 @@ void syscall_init(void)
 
 static int sys_write(int fd, const void *buffer, unsigned size)
 {
-	//struct file * file;
+	struct file * file;
 	if (fd == 1)
 	{
 		putbuf(buffer, size);
@@ -59,11 +59,12 @@ static int sys_write(int fd, const void *buffer, unsigned size)
 	// 있는지 없는지 검사
 	// 있다면 파일에 입력하는 함수 호출
 	// 함수가 반환하는 사이즈 그대로 반환
-	//file = find_file_from_fd(fd, )
-	// if (file == NULL)
-	// 	return -1;
+	file = find_file_from_fd(fd);
+	if (file == NULL)
+		return -1;
 	
-	// return file_write(file, buffer, size);
+	return file_write(file, buffer, size);
+
 }
 
 static void
