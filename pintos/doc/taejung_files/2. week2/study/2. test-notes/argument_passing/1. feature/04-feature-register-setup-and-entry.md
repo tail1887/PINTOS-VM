@@ -72,7 +72,7 @@ flowchart TD
 3. 성공 경로에서만 `intr_frame` 필드 세팅으로 진입한다.
 4. 실패 경로는 자원 정리 후 단일 반환 규칙으로 통일한다.
 
-### 5.2 `intr_frame` 인자 필드
+### 5.2 `set_user_entry_registers()` `intr_frame` 인자 필드
 - 위치: `pintos/userprog/process.c` (`if_.R.*`)
 - 역할: ABI 인자 전달
 - 규칙 1: `argc`는 정수 그대로 전달
@@ -84,7 +84,7 @@ flowchart TD
 3. `argv_base`가 사용자 가상 주소인지 점검한다.
 4. 커널 주소 전달 가능성을 차단한 뒤 다음 필드 세팅으로 진행한다.
 
-### 5.3 유저 전환 직전 점검
+### 5.3 `validate_user_entry_frame()` 유저 전환 직전 점검
 - 위치: `pintos/userprog/process.c`
 - 역할: 마지막 방어선
 - 규칙 1: `args-none` 기준 최소 입력에서도 동일 경로로 동작

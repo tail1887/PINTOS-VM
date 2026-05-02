@@ -69,17 +69,17 @@ sequenceDiagram
 - 위치: `pintos/userprog/process.c`
 - 역할: 스택 페이지 매핑과 초기 `rsp` 설정
 - 규칙 1: 매핑 실패 시 즉시 false
-- 규칙 2: 성공 시에만 인자 배치 루틴 호출
+- 규칙 2: 성공 시에만 `build_user_stack_args()` 호출
 
 구현 체크 순서:
 1. 스택 페이지 매핑 성공 여부를 먼저 확인한다.
 2. 성공 시 초기 `rsp = USER_STACK`으로 설정한다.
-3. 이후 인자 배치 루틴 호출로 문자열/포인터 구성 단계에 진입한다.
+3. 이후 `build_user_stack_args()` 호출로 문자열/포인터 구성 단계에 진입한다.
 4. 실패 시 즉시 false를 반환하고 후속 단계를 차단한다.
 
-### 5.2 인자 배치 루프
+### 5.2 `build_user_stack_args()` 인자 배치 루프
 - 위치: `pintos/userprog/process.c`
-- 역할: 문자열/포인터 push 연산
+- 역할: 문자열/포인터 push 연산의 전담 스택 빌더
 - 규칙 1: push 연산 단위를 함수화해 중복 버그 줄임
 - 규칙 2: 바이트 단위 경계 검사 누락 금지
 
@@ -89,7 +89,7 @@ sequenceDiagram
 3. `arg_addrs[]`를 역순 순회해 `argv` 포인터들을 push한다.
 4. 마지막에 fake return address(0)를 push해 프레임을 마무리한다.
 
-### 5.3 디버깅 관측점
+### 5.3 `debug_user_stack_layout()` 디버깅 관측점
 - 위치: `pintos/userprog/process.c` (임시 로그)
 - 역할: 실패 시 스택 레이아웃 확인
 - 규칙 1: `hex_dump()`로 `rsp` 인근 덤프 확인

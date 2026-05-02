@@ -33,6 +33,24 @@ process_init (void) {
 	struct thread *current = thread_current ();
 }
 
+// 최대 인자 수 정의
+#define ARG_MAX 128
+// 최대 인자 길이 정의
+#define MAX_ARG_LENGTH 128
+
+static bool build_user_stack_args(struct intr_frame *user_if, int argc, char **argv){
+	uintptr_t sp;
+	char *str_u[ARG_MAX];
+	int i;
+
+	if (argc <= 0 || argc > ARG_MAX || argv == NULL || user_if == NULL)
+		return false;
+
+	sp = (uintptr_t) user_if->rsp;
+
+}
+
+
 /* Starts the first userland program, called "initd", loaded from FILE_NAME.
  * The new thread may be scheduled (and may even exit)
  * before process_create_initd() returns. Returns the initd's
@@ -164,6 +182,50 @@ int
 process_exec (void *f_name) {
 	char *file_name = f_name;
 	bool success;
+	// 기능 1: 커맨드라인 파싱 (토큰화) 
+	
+	// process_exec() 파싱 시작부
+	
+	// file_name NULL 여부를 먼저 검사한다.
+	if (file_name == NULL){
+		return -1;
+	}
+	
+	// 길이가 너무 길지 않은지 확인한다. 
+	if(strnlen(file_name, PGSIZE) > MAX_ARG_LENGTH){
+		return -1;
+	}
+
+	// 공백만 있는 입력인지 확인한다.
+	if(strspn(file_name, " ") == strlen(file_name)){
+		return -1;
+	}
+	
+	// 쓰기 가능한 복사 버퍼를 할당한다.
+	char *cmd_line = palloc_get_page (0);
+	if (cmd_line == NULL){
+		palloc_free_page (file_name);
+		return -1;
+	}
+
+	// 복사 버퍼에 복사한다.
+	strlcpy(cmd_line, file_name, PGSIZE);
+
+	// parse_command_line_args() 토큰화 루프
+	int argc = 0;
+	char *argv[ARG_MAX];
+	success = parse_command_line_args(cmd_line, argc, argv);
+	if (!success){
+		palloc_free_page (cmd_line);
+		return -1;
+	}
+	
+	// finalize_parsed_args() 파싱 결과 반환
+	success = finalize_parsed_args(argc, argv);
+	if (!success){
+		palloc_free_page (cmd_line);
+		return -1;
+	}
 
 	/* We cannot use the intr_frame in the thread structure.
 	 * This is because when current thread rescheduled,
@@ -176,15 +238,45 @@ process_exec (void *f_name) {
 	/* We first kill the current context */
 	process_cleanup ();
 
-	/* And then load the binary */
-	success = load (file_name, &_if);
-
-	/* If load failed, quit. */
-	palloc_free_page (file_name);
-	if (!success)
+	// 기능 2: 사용자 스택 레이아웃 구성 부분 시작 (ABI 계약)
+		
+	// load() 기본 매핑
+	// load() 안에서 setup_stack() 호출
+	success = load(file_name, &_if);
+	if (!success){
+		palloc_free_page (file_name);
 		return -1;
+	}
 
-	/* Start switched process. */
+	// 실패 시 자원 정리 후 -1 반환
+	if (!success)
+	{
+		palloc_free_page (file_name);
+		return -1;
+	}
+	else{
+		// build_user_stack_args() 인자 배치 루프
+		success = build_user_stack_args(&_if, argc, argv);
+		if (!success){
+			palloc_free_page (file_name);
+			return -1;
+		}
+	}
+
+	// 기능 3: 레지스터 설정과 유저 진입 경계
+	// set_user_entry_registers() intr_frame 인자 필드
+	success = set_user_entry_registers(&_if, argc, argv);
+	if (!success){
+		palloc_free_page (file_name);
+		return -1;
+	}
+	// validate_user_entry_frame() 유저 전환 직전 점검
+	success = validate_user_entry_frame(&_if);
+	if (!success){
+		palloc_free_page (file_name);
+		return -1;
+	}
+	// do_iret() 유저 진입
 	do_iret (&_if);
 	NOT_REACHED ();
 }
