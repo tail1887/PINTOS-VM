@@ -22,11 +22,71 @@
 #include "vm/vm.h"
 #endif
 
+#define MAX_ARGS 64 
+
 static void process_cleanup (void);
 static bool load (const char *file_name, struct intr_frame *if_);
 static void initd (void *f_name);
 static void __do_fork (void *);
 
+// 헬퍼 함수 (arg_parsing, arg_stack)
+static int
+arg_parsing(char *file_name, char **argv)
+{
+    char *save_ptr;
+    char *token = strtok_r(file_name, " ", &save_ptr);
+    int argc = 0;
+
+    while (token != NULL) {
+        argv[argc] = token;
+        argc++;
+	
+        token = strtok_r(NULL, " ", &save_ptr);
+    }
+
+    argv[argc] = NULL;
+
+	return argc; 
+}
+
+static void arg_stack(char **argv, int argc, struct intr_frame *if_) {	
+	// 1. 문자열이 실제로 복사된 user stack 주소를 저장할 배열을 만든다 
+	char *user_stack_addr[MAX_ARGS]; 
+	void *fake_address = 0; 
+
+	// 2. argv 문자열들을 뒤에서부터 user stack에 복사한다
+	for (int i = argc-1; i >= 0; i--) {
+		int len = strlen(argv[i]) + 1; 		
+		if (len % 8 != 0) {
+			int modular = len % 8; 
+			
+			if_->rsp -= len + (8 - modular); 
+			user_stack_addr[i] = if_->rsp; 		
+						
+			memcpy(if_->rsp, argv[i], len);		 		 
+			memset(if_->rsp + len, 0, 8 - modular); 	
+		} else {		
+			if_->rsp -= len; 
+			user_stack_addr[i] = if_->rsp; 					
+			memcpy(if_->rsp, argv[i], len);		 		 
+		}
+	}
+
+	argv[argc] = NULL; 
+	if_->rsp -= 8; 
+	memcpy(if_->rsp, &argv[argc], 8);
+	
+	for (int i = argc-1; i >= 0; i--) {
+		if_->rsp -= 8; 
+		memcpy(if_->rsp, &user_stack_addr[i], 8); 
+	} 
+	if_->R.rdi = argc; 
+	if_->R.rsi = (uint64_t) if_->rsp;
+	
+	// fake return address 
+	if_->rsp -= 8;	
+	memcpy(if_->rsp, &fake_address, 8); 
+}
 /* General process initializer for initd and other process. */
 static void
 process_init (void) {
@@ -178,18 +238,31 @@ bool validate_user_entry_frame(struct intr_frame *user_if){
  * Notice that THIS SHOULD BE CALLED ONCE. */
 tid_t
 process_create_initd (const char *file_name) {
-	char *fn_copy;
-	tid_t tid;
-
+	char *fn_copy; // file_name 문자열을 복사해서 담아두는 별도의 메모리 페이지 
+	tid_t tid; // 고유한 쓰레드 ID 
+	
 	/* Make a copy of FILE_NAME.
 	 * Otherwise there's a race between the caller and load(). */
 	fn_copy = palloc_get_page (0);
-	if (fn_copy == NULL)
+	if (fn_copy == NULL) {
 		return TID_ERROR;
+	}
 	strlcpy (fn_copy, file_name, PGSIZE);
 
+    // char *token = strtok_r(file_name, " ", &save_ptr);
 	/* Create a new thread to execute FILE_NAME. */
-	tid = thread_create (file_name, PRI_DEFAULT, initd, fn_copy);
+	char *prog_copy; 
+	prog_copy = palloc_get_page (0); 
+
+	if (prog_copy == NULL) {
+		return TID_ERROR; 
+	}
+	strlcpy(prog_copy, file_name, PGSIZE); 
+	prog_copy = strtok_r(prog_copy, " ", &file_name); 
+
+	tid = thread_create (prog_copy, PRI_DEFAULT, initd, fn_copy);
+	palloc_free_page(prog_copy); 
+
 	if (tid == TID_ERROR)
 		palloc_free_page (fn_copy);
 	return tid;
@@ -198,12 +271,13 @@ process_create_initd (const char *file_name) {
 /* A thread function that launches first user process. */
 static void
 initd (void *f_name) {
+
 #ifdef VM
 	supplemental_page_table_init (&thread_current ()->spt);
 #endif
 
 	process_init ();
-
+	
 	if (process_exec (f_name) < 0)
 		PANIC("Fail to launch initd\n");
 	NOT_REACHED ();
@@ -296,6 +370,7 @@ error:
 	thread_exit ();
 }
 
+
 /* Switch the current execution context to the f_name.
  * Returns -1 on fail. */
 int
@@ -361,6 +436,9 @@ process_exec (void *f_name) {
 
 	/* We first kill the current context */
 	process_cleanup ();
+	
+	char *argv[MAX_ARGS]; 
+	// TODO: Argument 분리해서 파일명만 load()로 넘기기 
 
 	// 기능 2: 사용자 스택 레이아웃 구성 부분 시작 (ABI 계약)
 	uintptr_t argv_user_addr = 0;
@@ -418,7 +496,10 @@ process_wait (tid_t child_tid UNUSED) {
 	/* XXX: Hint) The pintos exit if process_wait (initd), we recommend you
 	 * XXX:       to add infinite loop here before
 	 * XXX:       implementing the process_wait. */
-	return -1;
+    for (int i = 0; i < 1000; i++) {
+        thread_yield();
+    }
+    return -1;
 }
 
 /* Exit the process. This function is called by thread_exit (). */
@@ -519,16 +600,17 @@ struct ELF64_PHDR {
 	uint64_t p_memsz;
 	uint64_t p_align;
 };
-
 /* Abbreviations */
 #define ELF ELF64_hdr
 #define Phdr ELF64_PHDR
+
 
 static bool setup_stack (struct intr_frame *if_);
 static bool validate_segment (const struct Phdr *, struct file *);
 static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
 		uint32_t read_bytes, uint32_t zero_bytes,
 		bool writable);
+
 
 /* Loads an ELF executable from FILE_NAME into the current thread.
  * Stores the executable's entry point into *RIP
@@ -549,7 +631,7 @@ load (const char *file_name, struct intr_frame *if_) {
 		goto done;
 	process_activate (thread_current ());
 
-	/* Open executable file. */
+	/* Open executable file. */	
 	file = filesys_open (file_name);
 	if (file == NULL) {
 		printf ("load: %s: open failed\n", file_name);
@@ -621,6 +703,7 @@ load (const char *file_name, struct intr_frame *if_) {
 		}
 	}
 
+	
 	/* Set up stack. */
 	if (!setup_stack (if_))
 		goto done;
@@ -630,7 +713,7 @@ load (const char *file_name, struct intr_frame *if_) {
 
 	/* TODO: Your code goes here.
 	 * TODO: Implement argument passing (see project2/argument_passing.html). */
-
+	
 	success = true;
 
 done:
