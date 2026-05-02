@@ -6,10 +6,40 @@
 #include "threads/loader.h"
 #include "userprog/gdt.h"
 #include "threads/flags.h"
+#include "lib/kernel/console.h"
 #include "intrinsic.h"
+#include "lib/kernel/stdio.h"
+#include <string.h>
+// 추가된 헤더파일
+#include <stdbool.h>
+#include <stdint.h>
+#include <stddef.h>
+#include "threads/vaddr.h"
+#include "threads/mmu.h"
+
+// 평소에는 꺼두기
+#define USER_MEM_DEBUG 0
+#if USER_MEM_DEBUG
+#define user_mem_debug(...) printf(__VA_ARGS__)
+#else
+#define user_mem_debug(...) ((void) 0)
+#endif
 
 void syscall_entry (void);
 void syscall_handler (struct intr_frame *);
+
+// 시스템콜 함수
+static int sys_write(int fd, const void *buffer, unsigned size);
+static void sys_exit(int status);
+
+// 유저 메모리 유효성 검사 함수
+static void fail_invalid_user_memory(void);
+static bool is_valid_user_ptr(const void *uaddr);
+static void validate_user_ptr(const void *uaddr);
+static void validate_user_buffer(const void *buffer, size_t size);
+static void validate_user_string(const char *str);
+
+
 
 /* System call.
  *
@@ -37,10 +67,106 @@ syscall_init (void) {
 			FLAG_IF | FLAG_TF | FLAG_DF | FLAG_IOPL | FLAG_AC | FLAG_NT);
 }
 
+// 유저 메모리 유효성 검사 함수들
+// 실패 종료 경로 함수
+static void
+fail_invalid_user_memory(void) {
+	sys_exit(-1);
+}
+
+// 접근 가능한 사용자 주소인지 판별하는 함수
+static bool
+is_valid_user_ptr(const void *uaddr) {
+
+	// NULL 포인터를 실패 처리한다.
+	if(uaddr == NULL){
+		user_mem_debug("invalid user ptr: NULL\n");
+		return false;
+	}
+
+	// is_user_vaddr()로 커널 주소를 차단한다.
+	if(!is_user_vaddr((void *) uaddr)){
+		user_mem_debug("invalid user ptr: kernel addr %p\n", uaddr);
+		return false;
+	}
+
+	// 현재 thread의 page table에서 매핑 여부를 확인한다.
+	if(pml4_get_page(thread_current()->pml4, (void *) uaddr) == NULL){
+		user_mem_debug("invalid user ptr: unmapped %p\n", uaddr);
+		return false;
+	}
+
+	return true;
+}
+
+//단일 포인터 검증 함수
+static void
+validate_user_ptr(const void *uaddr) {
+	if (!is_valid_user_ptr(uaddr)) {
+		fail_invalid_user_memory();
+	}
+}
+
+static void
+validate_user_buffer(const void *buffer, size_t size) {
+	if (size == 0) {
+		return;
+	}
+
+	validate_user_ptr(buffer);
+	validate_user_ptr((const uint8_t *) buffer + size - 1);
+
+	for (const uint8_t *p = pg_round_down(buffer);
+		 p <= (const uint8_t *) pg_round_down((const uint8_t *) buffer + size - 1);
+		 p += PGSIZE) {
+		validate_user_ptr(p);
+	}
+}
+
+static void
+validate_user_string(const char *str) {
+	validate_user_ptr(str);
+
+	while (true) {
+		validate_user_ptr(str);
+		if (*str == '\0') {
+			return;
+		}
+		str++;
+	}
+}
+
+
+// 시스템 콜 함수들
+
+static int sys_write(int fd, const void *buffer, unsigned size) {
+	if (fd == 1) {
+		putbuf(buffer, size);
+		return size;
+	}
+	return 0;
+}
+
+static void
+sys_exit(int status) {
+    printf("%s: exit(%d)\n", thread_current()->name, status);
+    thread_exit();
+}
+
 /* The main system call interface */
 void
 syscall_handler (struct intr_frame *f UNUSED) {
 	// TODO: Your implementation goes here.
-	printf ("system call!\n");
-	thread_exit ();
+
+	// 10번이 SYS_WRITE
+	int sys_call = f->R.rax;
+
+	switch (sys_call) {
+		case SYS_WRITE:
+			f->R.rax = sys_write(f->R.rdi, f->R.rsi, f->R.rdx);
+			break;
+		case SYS_EXIT:
+			sys_exit(f->R.rdi);
+	}
+
 }
