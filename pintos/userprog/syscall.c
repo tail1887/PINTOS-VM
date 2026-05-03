@@ -10,8 +10,9 @@
 #include "intrinsic.h"
 #include "lib/kernel/stdio.h"
 #include <string.h>
-#include "threads/init.h" // power_off 함수
-#include "filesys/file.h" // file_write 함수 
+#include "threads/init.h"  // power_off 함수
+#include "filesys/file.h"  // file_write 함수
+#include "devices/input.h" //sys_read
 void syscall_entry(void);
 void syscall_handler(struct intr_frame *);
 
@@ -44,9 +45,39 @@ void syscall_init(void)
 			  FLAG_IF | FLAG_TF | FLAG_DF | FLAG_IOPL | FLAG_AC | FLAG_NT);
 }
 
+static int sys_read(int fd, void *buffer, unsigned size)
+{
+	struct file *file;
+
+	if (size == 0)
+		return 0;
+
+	if (fd == 0) // 표준입력,  size만큼 반복, 문자 하나를 읽어서 버퍼에 저장후, size반환
+	{
+		for (int i = 0; i<size; i++)
+		{
+			((uint8_t *) buffer)[i]=input_getc();
+		}
+		return size;
+	}
+
+	if (fd == 1)
+		return -1;
+
+	if (fd >= 2)
+	{
+		file = find_file_from_fd(fd);
+		if (file == NULL)
+			return -1;
+		return file_read(file, buffer, size);
+	}
+
+	return -1;   //나머지 경우 처리
+}
+
 static int sys_write(int fd, const void *buffer, unsigned size)
 {
-	struct file * file;
+	struct file *file;
 	if (fd == 1)
 	{
 		putbuf(buffer, size);
@@ -62,9 +93,13 @@ static int sys_write(int fd, const void *buffer, unsigned size)
 	file = find_file_from_fd(fd);
 	if (file == NULL)
 		return -1;
-	
-	return file_write(file, buffer, size);
+	if (fd >= 2)
+		return file_write(file, buffer, size);
 
+	if (fd==0)
+		return -1;
+	if (fd < 0)
+		return -1;
 }
 
 static void
