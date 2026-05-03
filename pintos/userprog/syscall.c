@@ -102,38 +102,17 @@ is_valid_user_ptr(const void *uaddr) {
 //단일 포인터 검증 함수
 static void
 validate_user_ptr(const void *uaddr) {
-	if (!is_valid_user_ptr(uaddr)) {
-		fail_invalid_user_memory();
-	}
+
 }
 
 static void
 validate_user_buffer(const void *buffer, size_t size) {
-	if (size == 0) {
-		return;
-	}
 
-	validate_user_ptr(buffer);
-	validate_user_ptr((const uint8_t *) buffer + size - 1);
-
-	for (const uint8_t *p = pg_round_down(buffer);
-		 p <= (const uint8_t *) pg_round_down((const uint8_t *) buffer + size - 1);
-		 p += PGSIZE) {
-		validate_user_ptr(p);
-	}
 }
 
 static void
 validate_user_string(const char *str) {
-	validate_user_ptr(str);
 
-	while (true) {
-		validate_user_ptr(str);
-		if (*str == '\0') {
-			return;
-		}
-		str++;
-	}
 }
 
 
