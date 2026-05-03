@@ -71,6 +71,9 @@ syscall_init (void) {
 // 실패 종료 경로 함수
 static void
 fail_invalid_user_memory(void) {
+	// 잘못된 사용자 메모리는 현재 프로세스를 exit(-1)로 종료한다.
+	// validate_*() 계열 helper의 공통 실패 경로로 사용한다.
+	// 호출 이후 정상 syscall 반환값을 만들지 않는다.
 	sys_exit(-1);
 }
 
@@ -103,18 +106,45 @@ is_valid_user_ptr(const void *uaddr) {
 static void
 validate_user_ptr(const void *uaddr) {
 
+	// 규칙 1: 내부 판별은 is_valid_user_ptr()에 위임한다.
+	if (!is_valid_user_ptr(uaddr)) {
+		// 실패 시 fail_invalid_user_memory()를 호출한다.
+		fail_invalid_user_memory();
+	}
 }
 
 static void
 validate_user_buffer(const void *buffer, size_t size) {
+	// size == 0은 빈 범위로 처리한다.
+	if (size == 0) {
+		return;
+	}
+	// 시작 주소를 검증한다.
+	validate_user_ptr(buffer);
+	// buffer가 가리키는 메모리 범위의 마지막 바이트도 유효한 사용자 주소인지 확인한다
+	validate_user_ptr((const uint8_t *) buffer + size - 1);
 
+	for (const uint8_t *page = pg_round_down(buffer);
+		 page <= (const uint8_t *) pg_round_down((const uint8_t *) buffer + size - 1);
+		 page += PGSIZE) {
+		validate_user_ptr(page);
+	}
 }
 
 static void
 validate_user_string(const char *str) {
+	// 규칙 1: 시작 주소뿐 아니라 각 문자 위치를 검증한다.
+	validate_user_ptr(str);
 
+	// 규칙 2: NUL 종료를 발견하면 검증을 종료한다.
+	while (true) {
+		validate_user_ptr(str);
+		if (*str == '\0') {
+			return;
+		}
+		str++;
+	}
 }
-
 
 // 시스템 콜 함수들
 
