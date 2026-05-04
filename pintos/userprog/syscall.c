@@ -35,15 +35,15 @@ void syscall_handler(struct intr_frame *);
 // 시스템콜 함수
 static int sys_write(int fd, const void *buffer, unsigned size);
 static int sys_open(const char *file);
-//static int sys_read(int fd, void *buffer, unsigned size);
+static int sys_read(int fd, void *buffer, unsigned size);
 static bool sys_create(const char *file, unsigned initial_size);
 static void sys_halt(void);
 void sys_exit(int status);
 
 // 기본 헬퍼 함수
 static struct file* find_file_by_fd(int fd); 
-bool file_name_is_empty(const char* file); 
-bool file_name_is_too_long(const char* file);
+static bool file_name_is_empty(const char* file); 
+static bool file_name_is_too_long(const char* file);
 
 // 유저 메모리 유효성 검사 함수
 static void fail_invalid_user_memory(void);
@@ -270,16 +270,6 @@ void sys_exit(int status)
 {
 	printf("%s: exit(%d)\n", thread_current()->name, status);
 	thread_exit();
-}
-
-static bool 
-file_name_is_empty(const char *file) {
-	return strlen(file) == 0; 
-}
-
-static bool 
-file_name_is_too_long(const char *file) {
-	return strlen(file) > NAME_MAX; 
 }
 
 static bool 
