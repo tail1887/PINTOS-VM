@@ -161,14 +161,26 @@ bool set_user_entry_registers(struct intr_frame *user_if, int argc, uintptr_t ar
 	return true;
 }
 
-bool validate_user_entry_frame(struct intr_frame *user_if){
-	// 입력 검증하기
-	if(user_if == NULL)
+bool
+validate_user_entry_frame (struct intr_frame *user_if)
+{
+	if (user_if == NULL)
 		return false;
-	// RSP가 사용자 스택 영역인지 확인한다.
-	if(!is_user_vaddr((void *) user_if->rsp)){
+
+	if (!is_user_vaddr ((void *) user_if->rsp))
 		return false;
-	}
+
+	/* `set_user_entry_registers` 계약: RDI = argc (정수), RSI = argv (사용자 주소). */
+	if (user_if->R.rdi == 0 || user_if->R.rdi > ARG_MAX)
+		return false;
+
+	if (!is_user_vaddr ((void *) user_if->R.rsi))
+		return false;
+	if ((user_if->R.rsi % sizeof (void *)) != 0)
+		return false;
+	if (pml4_get_page (thread_current ()->pml4, (void *) user_if->R.rsi) == NULL)
+		return false;
+
 	return true;
 }
 
@@ -228,7 +240,6 @@ initd (void *f_name) {
  * TID_ERROR if the thread cannot be created. */
 tid_t
 process_fork (const char *name, struct intr_frame *if_ UNUSED) {
-	/* Clone current thread to new thread.*/
 	return thread_create (name,
 			PRI_DEFAULT, __do_fork, thread_current ());
 }
