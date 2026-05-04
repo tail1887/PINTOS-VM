@@ -111,8 +111,17 @@ struct thread {
 	// donation 리스트 연결용 전용 노드 필드(donation_elem)를 둔다.
 	struct list_elem donation_elem;
 
+	// file pointers를 저장할 fd_table
 	struct file* fd_table[ARG_MAX];
+
+	// auto-increment를 저장하기 위한 next_fd 
 	int next_fd; 
+
+	// child process list를 추적하기 위한 thread list 
+	struct list child_process_list; 
+
+	struct list_elem child_process_elem; 
+	
 	// donation 리스트 등록 상태 추적 플래그(in_donation_list)를 둔다.
 	bool in_donation_list;
 

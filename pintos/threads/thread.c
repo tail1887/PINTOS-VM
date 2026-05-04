@@ -246,6 +246,9 @@ thread_create (const char *name, int priority,
 	init_thread (t, name, priority);
 	tid = t->tid = allocate_tid ();
 
+	struct thread *curr_process = thread_current(); 
+	list_push_back(&curr_process->child_process_list, &t->child_process_elem);
+	
 	/* Call the kernel_thread if it scheduled.
 	 * Note) rdi is 1st argument, and rsi is 2nd argument. */
 	t->tf.rip = (uintptr_t) kernel_thread;
@@ -256,7 +259,7 @@ thread_create (const char *name, int priority,
 	t->tf.ss = SEL_KDSEG;
 	t->tf.cs = SEL_KCSEG;
 	t->tf.eflags = FLAG_IF;
-
+	
 	/* Add to run queue. */
 	// 생성 경로에서 삽입 정책을 중복 구현하지 않고 thread_unblock()으로 위임한다.
 	thread_unblock (t);
@@ -495,7 +498,7 @@ init_thread (struct thread *t, const char *name, int priority) {
 	for (int i = 0; i < ARG_MAX; i++) {
 		t->fd_table[i] = NULL; 
 	}
-
+	list_init(&t->child_process_list); 	
 	list_init(&t->donation_candidates); // donation 리스트를 초기화한다.
 	// in_donation_list를 false로 초기화한다.
 	t->in_donation_list = false;
