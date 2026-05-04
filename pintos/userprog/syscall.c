@@ -193,6 +193,8 @@ static int sys_write(int fd, const void *buffer, unsigned size)
 	if (fd>= ARG_MAX)
 		return -1;
 
+	validate_user_buffer(buffer, size);
+
 	// fd_table[fd]의 file*를 가져옴
 	file = find_file_by_fd(fd);
 	if (file == NULL)
@@ -209,6 +211,15 @@ static int sys_read(int fd, void *buffer, unsigned size)
 	if (size == 0)
 		return 0;
 
+	validate_user_buffer(buffer, size);
+
+	if (fd == 1)
+		return -1;
+	if (fd < 0)
+		return -1;
+	if (fd >= ARG_MAX)
+		return -1;
+
 	if (fd == 0) // 표준입력,  size만큼 반복, 문자 하나를 읽어서 버퍼에 저장후, size반환
 	{
 		for (int i = 0; i < size; i++)
@@ -218,9 +229,6 @@ static int sys_read(int fd, void *buffer, unsigned size)
 		return size;
 	}
 
-	if (fd == 1)
-		return -1;
-
 	if (fd >= 2)
 	{
 		file = find_file_by_fd(fd);
@@ -228,8 +236,6 @@ static int sys_read(int fd, void *buffer, unsigned size)
 			return -1;
 		return file_read(file, buffer, size);
 	}
-
-	return -1; // 나머지 경우 처리
 }
 
 static int
@@ -326,6 +332,9 @@ void syscall_handler(struct intr_frame *f UNUSED)
 		break;
 	case SYS_HALT:
 		sys_halt();
+		break;
+	case SYS_READ:
+		f->R.rax = sys_read(f->R.rdi, f->R.rsi, f->R.rdx);
 		break;
 	default:
 		sys_exit(-1);
