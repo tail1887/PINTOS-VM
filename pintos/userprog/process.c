@@ -7,6 +7,7 @@
 #include <string.h>
 #include "userprog/gdt.h"
 #include "userprog/tss.h"
+#include "userprog/process.h"
 #include "filesys/directory.h"
 #include "filesys/file.h"
 #include "filesys/filesys.h"
@@ -35,8 +36,7 @@ process_init (void) {
 	struct thread *current = thread_current ();
 }
 
-// 최대 인자 수 정의
-#define ARG_MAX 128
+
 
 
 bool parse_command_line_args(char *cmd_line, int *argc, char **argv){
@@ -366,7 +366,7 @@ process_exec (void *f_name) {
 	int argc = 0;
 	char *argv[ARG_MAX];
 	success = parse_command_line_args(cmd_line, &argc, argv);
-	if (!success){
+	if (!success){ 
 		palloc_free_page (file_name);
 		palloc_free_page (cmd_line);
 		return -1;
@@ -449,9 +449,18 @@ process_wait (tid_t child_tid UNUSED) {
 	/* XXX: Hint) The pintos exit if process_wait (initd), we recommend you
 	 * XXX:       to add infinite loop here before
 	 * XXX:       implementing the process_wait. */
-    for (int i = 0; i < 1000; i++) {
+	// bool child_process_not_finished = 1; 
+	// tid_t parent_process_tid = thread_current()->tid; 
+
+	// while (child_process_not_finished) {
+		 
+	// }
+
+    for (int i = 0; i < 100000; i++) {
         thread_yield();
     }
+	
+	// TODO 1: child process가 끝날때까지 대기하기 
     return -1;
 }
 
