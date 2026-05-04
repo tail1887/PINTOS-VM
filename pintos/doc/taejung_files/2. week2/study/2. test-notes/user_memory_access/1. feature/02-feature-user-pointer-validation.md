@@ -156,6 +156,19 @@ flowchart LR
 2. `validate_user_ptr()`에서 이 함수로 실패를 모은다.
 3. 이후 `validate_user_buffer()`, `validate_user_string()`도 같은 경로를 사용한다.
 
+### 5.4 `syscall_handler()` syscall 인자 분기
+- 위치: `pintos/userprog/syscall.c`
+- 역할: syscall 번호를 확인하고 레지스터 인자를 syscall 구현 함수에 전달한다.
+- 규칙 1: x86-64 syscall 인자는 `f->R.rdi`, `f->R.rsi`, `f->R.rdx` 등에서 온다.
+- 규칙 2: 포인터 의미를 아는 개별 syscall 구현 함수에서 `validate_*()`를 호출한다.
+- 규칙 3: 잘못된 syscall 또는 검증 실패가 정상 dispatch로 이어지지 않게 한다.
+- 금지 1: 사용자 포인터 인자를 검증 없이 역참조하지 않는다.
+
+구현 체크 순서:
+1. syscall 번호를 기준으로 분기한다.
+2. 레지스터 인자를 `sys_write()`, `sys_read()` 같은 구현 함수에 넘긴다.
+3. 구현 함수 안에서 포인터 종류에 맞는 helper를 호출한다.
+
 ## 6. 테스팅 방법
 - `bad-read`, `bad-write`: 잘못된 사용자 주소 직접 접근 방어
 - `read-bad-ptr`, `write-bad-ptr`: syscall 인자 포인터 검증
