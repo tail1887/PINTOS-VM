@@ -36,6 +36,11 @@ struct fork_args {
 	struct intr_frame parent_if;
 };
 
+struct initd_args {
+	char *file_name;
+	struct child_status *child_status;
+};
+
 static void
 child_status_release(struct child_status *cs)
 {
@@ -49,6 +54,25 @@ child_status_release(struct child_status *cs)
 
 	if (should_free)
 		palloc_free_page(cs);
+}
+
+static struct child_status *
+child_status_create(void)
+{
+	struct child_status *cs = palloc_get_page(0);
+	if (cs == NULL)
+		return NULL;
+
+	cs->tid = TID_ERROR;
+	cs->exit_status = -1;
+	cs->waited = false;
+	cs->exited = false;
+	cs->fork_success = false;
+	sema_init(&cs->fork_sema, 0);
+	sema_init(&cs->wait_sema, 0);
+	cs->ref_count = 2;
+	lock_init(&cs->ref_lock);
+	return cs;
 }
 
 static bool
@@ -265,6 +289,8 @@ tid_t
 process_create_initd (const char *file_name) {
 	char *fn_copy; // file_name 문자열을 복사해서 담아두는 별도의 메모리 페이지 
 	tid_t tid; // 고유한 쓰레드 ID 
+	struct child_status *cs;
+	struct initd_args *args;
 	
 	/* Make a copy of FILE_NAME.
 	 * Otherwise there's a race between the caller and load(). */
@@ -280,22 +306,53 @@ process_create_initd (const char *file_name) {
 	prog_copy = palloc_get_page (0); 
 
 	if (prog_copy == NULL) {
+		palloc_free_page (fn_copy);
 		return TID_ERROR; 
 	}
 	strlcpy(prog_copy, file_name, PGSIZE); 
 	prog_copy = strtok_r(prog_copy, " ", &file_name); 
 
-	tid = thread_create (prog_copy, PRI_DEFAULT, initd, fn_copy);
+	cs = child_status_create();
+	if (cs == NULL) {
+		palloc_free_page (fn_copy);
+		palloc_free_page (prog_copy);
+		return TID_ERROR;
+	}
+
+	args = palloc_get_page (0);
+	if (args == NULL) {
+		palloc_free_page (fn_copy);
+		palloc_free_page (prog_copy);
+		palloc_free_page (cs);
+		return TID_ERROR;
+	}
+
+	args->file_name = fn_copy;
+	args->child_status = cs;
+	list_push_back(&thread_current()->children, &cs->elem);
+
+	tid = thread_create (prog_copy, PRI_DEFAULT, initd, args);
 	palloc_free_page(prog_copy); 
 
-	if (tid == TID_ERROR)
+	if (tid == TID_ERROR) {
+		list_remove(&cs->elem);
 		palloc_free_page (fn_copy);
+		palloc_free_page (args);
+		palloc_free_page (cs);
+		return TID_ERROR;
+	}
+
+	cs->tid = tid;
 	return tid;
 }
 
 /* A thread function that launches first user process. */
 static void
 initd (void *f_name) {
+	struct initd_args *args = f_name;
+	char *file_name = args->file_name;
+	thread_current()->my_status = args->child_status;
+	palloc_free_page(args);
 
 #ifdef VM
 	supplemental_page_table_init (&thread_current ()->spt);
@@ -303,7 +360,7 @@ initd (void *f_name) {
 
 	process_init ();
 	
-	if (process_exec (f_name) < 0)
+	if (process_exec (file_name) < 0)
 		PANIC("Fail to launch initd\n");
 	NOT_REACHED ();
 }
@@ -313,19 +370,9 @@ initd (void *f_name) {
 tid_t
 process_fork (const char *name, struct intr_frame *if_ UNUSED) {
 	struct thread *parent = thread_current();
-	struct child_status *cs = palloc_get_page(0);
+	struct child_status *cs = child_status_create();
 	if (cs == NULL)
 		return TID_ERROR;
-
-	cs->tid = TID_ERROR;
-	cs->exit_status = -1;
-	cs->waited = false;
-	cs->exited = false;
-	cs->fork_success = false;
-	sema_init(&cs->fork_sema, 0);
-	sema_init(&cs->wait_sema, 0);
-	cs->ref_count = 2;
-	lock_init(&cs->ref_lock);
 
 	struct fork_args *args = palloc_get_page(0);
 	if (args == NULL)
