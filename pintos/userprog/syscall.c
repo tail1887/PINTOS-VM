@@ -37,6 +37,8 @@ void sys_exit(int status);
 
 // 기본 헬퍼 함수 
 static struct file* find_file_by_fd(int fd); 
+bool file_name_is_empty(const char* file); 
+bool file_name_is_too_long(const char* file);
 
 // 유저 메모리 유효성 검사 함수
 static void fail_invalid_user_memory(void);
@@ -193,11 +195,23 @@ sys_open(const char *file_name) {
 		sys_exit(-1);
 	}
 
+	validate_user_string(file_name); 
+
+	if (file_name_is_empty(file_name)) {
+    	return -1;
+	}
+
 	// sys_open이 filesys_open(file_name)을 호출 
 	// filesys_open이 디렉터리에서 파일 이름을 찾고 inode를 얻음
 	// filesys_open 내부에서 file_open(inode) 호출
 	// file_open이 struct file * 객체를 만들어 반환
 	struct file* file = filesys_open(file_name); 
+
+	// open-missing 테스트 
+	if (file == NULL) {
+		return -1; 
+	}
+
 	struct thread *curr_thread = thread_current(); 
 
 	curr_thread->fd_table[curr_thread->next_fd] = file; 
@@ -211,12 +225,12 @@ sys_exit(int status) {
     thread_exit();
 }
 
-static bool 
+bool 
 file_name_is_empty(const char *file) {
 	return strlen(file) == 0; 
 }
 
-static bool 
+bool 
 file_name_is_too_long(const char *file) {
 	return strlen(file) > NAME_MAX; 
 }
