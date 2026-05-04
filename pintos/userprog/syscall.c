@@ -65,6 +65,18 @@ static void validate_user_string(const char *str);
 #define MSR_LSTAR 0xc0000082		/* Long mode SYSCALL target */
 #define MSR_SYSCALL_MASK 0xc0000084 /* Mask for the eflags */
 
+void syscall_init(void)
+{
+	write_msr(MSR_STAR, ((uint64_t)SEL_UCSEG - 0x10) << 48 |
+							((uint64_t)SEL_KCSEG) << 32);
+	write_msr(MSR_LSTAR, (uint64_t)syscall_entry);
+
+	/* The interrupt service rountine should not serve any interrupts
+	 * until the syscall_entry swaps the userland stack to the kernel
+	 * mode stack. Therefore, we masked the FLAG_FL. */
+	write_msr(MSR_SYSCALL_MASK,
+			  FLAG_IF | FLAG_TF | FLAG_DF | FLAG_IOPL | FLAG_AC | FLAG_NT);
+}
 
 
 static bool
@@ -79,19 +91,6 @@ file_name_is_too_long(const char *file)
 	return strlen(file) > NAME_MAX;
 }
 
-//sys함수
-void syscall_init(void)
-{
-	write_msr(MSR_STAR, ((uint64_t)SEL_UCSEG - 0x10) << 48 |
-							((uint64_t)SEL_KCSEG) << 32);
-	write_msr(MSR_LSTAR, (uint64_t)syscall_entry);
-
-	/* The interrupt service rountine should not serve any interrupts
-	 * until the syscall_entry swaps the userland stack to the kernel
-	 * mode stack. Therefore, we masked the FLAG_FL. */
-	write_msr(MSR_SYSCALL_MASK,
-			  FLAG_IF | FLAG_TF | FLAG_DF | FLAG_IOPL | FLAG_AC | FLAG_NT);
-}
 
 // 유저 메모리 유효성 검사 함수들
 // 실패 종료 경로 함수
