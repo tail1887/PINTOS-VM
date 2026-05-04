@@ -9,6 +9,7 @@
 #include "threads/loader.h"
 #include "threads/vaddr.h"
 #include "threads/mmu.h"
+#include "threads/palloc.h"
 #include "userprog/gdt.h"
 #include "userprog/process.h"
 #include "threads/flags.h"
@@ -401,6 +402,21 @@ void syscall_handler(struct intr_frame *f UNUSED)
 	case SYS_CLOSE:
 		sys_close((int) f->R.rdi);
 		break;
+	case SYS_EXEC:
+	{
+		char *copied_cmd;
+
+		validate_user_string((const char *) f->R.rdi);
+		copied_cmd = palloc_get_page(0);
+		if (copied_cmd == NULL)
+		{
+			f->R.rax = -1;
+			break;
+		}
+		strlcpy(copied_cmd, (const char *) f->R.rdi, PGSIZE);
+		f->R.rax = process_exec(copied_cmd);
+		break;
+	}
 	default:
 		sys_exit(-1);
 		break;
