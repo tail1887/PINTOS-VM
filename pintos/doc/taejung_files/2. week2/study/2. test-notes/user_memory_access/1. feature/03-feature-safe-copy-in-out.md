@@ -148,6 +148,45 @@ sequenceDiagram
 3. 마지막 바이트까지 범위를 순회하거나 페이지 단위로 검사한다.
 4. 검증된 버퍼만 `read()`/`write()` 로직으로 넘긴다.
 
+### 5.3 `sys_write()` 사용자 버퍼 읽기 경로
+- 위치: `pintos/userprog/syscall.c`
+- 역할: 커널이 사용자 버퍼를 읽기 전에 `validate_user_buffer()`를 호출한다.
+- 규칙 1: `putbuf()` 또는 파일 write 로직보다 먼저 검증한다.
+- 규칙 2: `buffer`와 `size`를 함께 검증한다.
+- 규칙 3: 검증 실패 시 write 반환값을 만들지 않는다.
+- 금지 1: `buffer` 시작 주소만 확인하고 출력하지 않는다.
+
+구현 체크 순서:
+1. `sys_write(fd, buffer, size)` 진입 직후 버퍼 범위를 검증한다.
+2. stdout이면 검증된 버퍼만 `putbuf()`에 넘긴다.
+3. 파일 write 구현이 추가되어도 같은 검증 경로를 유지한다.
+
+### 5.4 `sys_read()` 사용자 버퍼 쓰기 경로
+- 위치: `pintos/userprog/syscall.c`
+- 역할: 커널이 사용자 버퍼에 데이터를 쓰기 전에 범위를 검증한다.
+- 규칙 1: `buffer`와 `size` 전체 범위를 먼저 검증한다.
+- 규칙 2: 이후 writable 검사가 필요하면 `validate_user_buffer_writable()`로 확장한다.
+- 규칙 3: 검증된 범위에 대해서만 입력 데이터를 복사한다.
+- 금지 1: 읽은 데이터를 검증되지 않은 사용자 주소에 쓰지 않는다.
+
+구현 체크 순서:
+1. `sys_read(fd, buffer, size)` 진입 직후 버퍼 범위를 검증한다.
+2. stdin 또는 파일에서 데이터를 읽는다.
+3. 검증된 사용자 버퍼로만 결과를 복사한다.
+
+### 5.5 `sys_open()` / `sys_create()` / `sys_exec()` 문자열 인자 경로
+- 위치: `pintos/userprog/syscall.c`
+- 역할: 파일명 또는 command line 문자열을 커널 로직에 넘기기 전에 검증한다.
+- 규칙 1: 문자열 인자는 `validate_user_string()`으로 검증한다.
+- 규칙 2: 검증 후에만 파일 시스템 또는 프로세스 실행 로직에 넘긴다.
+- 규칙 3: boundary를 넘는 문자열도 NUL까지 전체 검증한다.
+- 금지 1: 검증 없이 `filesys_open()`, `filesys_create()`, `process_exec()`에 넘기지 않는다.
+
+구현 체크 순서:
+1. syscall 구현 함수 입구에서 문자열 포인터를 검증한다.
+2. 검증 성공 후 파일명 또는 command line으로 사용한다.
+3. 검증 실패 시 syscall 성공 경로로 진행하지 않는다.
+
 ## 6. 테스팅 방법
 - `open-boundary`, `exec-boundary`: 문자열 boundary 검증
 - `read-boundary`, `write-boundary`: 버퍼 boundary 검증
