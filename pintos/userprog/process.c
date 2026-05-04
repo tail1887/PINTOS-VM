@@ -182,11 +182,16 @@ bool finalize_parsed_args(int argc, char **argv){
 
 static bool build_user_stack_args(struct intr_frame *user_if, int argc, char **argv, uintptr_t *argv_user_addr){
 	uintptr_t sp;
-	char *arg_addrs[ARG_MAX];
+	char **arg_addrs;
 	int i;
 	// 입력 검증
 	if (argc <= 0 || argc > ARG_MAX || argv == NULL || user_if == NULL || argv_user_addr == NULL)
 		return false;
+
+	arg_addrs = palloc_get_page (0);
+	if (arg_addrs == NULL)
+		return false;
+
 	// 문자열을 역순으로 push하고 시작 주소를 arg_addrs[]에 기록한다.
 	sp = (uintptr_t) user_if->rsp;
 	
@@ -195,6 +200,7 @@ static bool build_user_stack_args(struct intr_frame *user_if, int argc, char **a
 		sp -= len;
 
 		if(sp < USER_STACK - PGSIZE){
+			palloc_free_page (arg_addrs);
 			return false;
 		}
 
@@ -205,12 +211,14 @@ static bool build_user_stack_args(struct intr_frame *user_if, int argc, char **a
 	sp &= ~0x7;
 
 	if(sp < USER_STACK - PGSIZE){
+		palloc_free_page (arg_addrs);
 		return false;
 	}
 	
 	sp -= sizeof(char *);
 	
 	if(sp < USER_STACK - PGSIZE){
+		palloc_free_page (arg_addrs);
 		return false;
 	}
 
@@ -221,6 +229,7 @@ static bool build_user_stack_args(struct intr_frame *user_if, int argc, char **a
 		sp -= sizeof(char *);
 
 		if(sp < USER_STACK - PGSIZE){
+			palloc_free_page (arg_addrs);
 			return false;
 		}
 
@@ -233,12 +242,14 @@ static bool build_user_stack_args(struct intr_frame *user_if, int argc, char **a
 	sp -= sizeof(char *);
 
 	if(sp < USER_STACK - PGSIZE){
+		palloc_free_page (arg_addrs);
 		return false;
 	}
 
 	*(void **) sp = NULL;
 
 	user_if->rsp = sp;
+	palloc_free_page (arg_addrs);
 	return true;
 }
 
@@ -533,11 +544,18 @@ process_exec (void *f_name) {
 
 	// parse_command_line_args() 토큰화 루프
 	int argc = 0;
-	char *argv[ARG_MAX];
+	char **argv = palloc_get_page (0);
+	if (argv == NULL){
+		palloc_free_page (file_name);
+		palloc_free_page (cmd_line);
+		return -1;
+	}
+
 	success = parse_command_line_args(cmd_line, &argc, argv);
 	if (!success){ 
 		palloc_free_page (file_name);
 		palloc_free_page (cmd_line);
+		palloc_free_page (argv);
 		return -1;
 	}
 	
@@ -546,6 +564,7 @@ process_exec (void *f_name) {
 	if (!success){
 		palloc_free_page (file_name);
 		palloc_free_page (cmd_line);
+		palloc_free_page (argv);
 		return -1;
 	}
 
@@ -570,6 +589,7 @@ process_exec (void *f_name) {
 	if (!success){
 		palloc_free_page (file_name);
 		palloc_free_page (cmd_line);
+		palloc_free_page (argv);
 		return -1;
 	}
 	else{
@@ -578,6 +598,7 @@ process_exec (void *f_name) {
 		if (!success){
 			palloc_free_page (file_name);
 			palloc_free_page (cmd_line);
+			palloc_free_page (argv);
 			return -1;
 		}
 	}
@@ -588,6 +609,7 @@ process_exec (void *f_name) {
 	if (!success){
 		palloc_free_page (file_name);
 		palloc_free_page (cmd_line);
+		palloc_free_page (argv);
 		return -1;
 	}
 	// validate_user_entry_frame() 유저 전환 직전 점검
@@ -595,11 +617,13 @@ process_exec (void *f_name) {
 	if (!success){
 		palloc_free_page (file_name);
 		palloc_free_page (cmd_line);
+		palloc_free_page (argv);
 		return -1;
 	}
 	// do_iret() 유저 진입
 	palloc_free_page (file_name);
 	palloc_free_page (cmd_line);
+	palloc_free_page (argv);
 	do_iret (&_if);
 	NOT_REACHED ();
 }
