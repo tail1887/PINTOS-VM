@@ -1,21 +1,22 @@
 #include "userprog/syscall.h"
 #include <stdio.h>
+#include <stdbool.h> 
+#include <stddef.h> 
 #include <syscall-nr.h>
+#include <string.h>
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 #include "threads/loader.h"
+#include "threads/vaddr.h"
+#include "threads/mmu.h"
 #include "userprog/gdt.h"
 #include "threads/flags.h"
 #include "lib/kernel/console.h"
 #include "intrinsic.h"
 #include "lib/kernel/stdio.h"
-#include <string.h>
-// 추가된 헤더파일
-#include <stdbool.h>
-#include <stdint.h>
-#include <stddef.h>
-#include "threads/vaddr.h"
-#include "threads/mmu.h"
+#include "filesys/filesys.h"
+#include "filesys/directory.h"
+#include "filesys/file.h"
 
 // 평소에는 꺼두기
 #define USER_MEM_DEBUG 0
@@ -32,14 +33,12 @@ void syscall_handler (struct intr_frame *);
 static int sys_write(int fd, const void *buffer, unsigned size);
 void sys_exit(int status);
 
-
 // 유저 메모리 유효성 검사 함수
 static void fail_invalid_user_memory(void);
 static bool is_valid_user_ptr(const void *uaddr);
 static void validate_user_ptr(const void *uaddr);
 static void validate_user_buffer(const void *buffer, size_t size);
 static void validate_user_string(const char *str);
-
 
 
 /* System call.
@@ -60,7 +59,7 @@ syscall_init (void) {
 	write_msr(MSR_STAR, ((uint64_t)SEL_UCSEG - 0x10) << 48  |
 			((uint64_t)SEL_KCSEG) << 32);
 	write_msr(MSR_LSTAR, (uint64_t) syscall_entry);
-
+	
 	/* The interrupt service rountine should not serve any interrupts
 	 * until the syscall_entry swaps the userland stack to the kernel
 	 * mode stack. Therefore, we masked the FLAG_FL. */
@@ -163,20 +162,59 @@ sys_exit(int status) {
     thread_exit();
 }
 
+static bool 
+file_name_is_empty(const char *file) {
+	return strlen(file) == 0; 
+}
+
+static bool 
+file_name_is_too_long(const char *file) {
+	return strlen(file) > NAME_MAX; 
+}
+
+static bool 
+sys_create(const char *file, unsigned initial_size) {
+	if (!is_valid_user_ptr(file)) {
+		sys_exit(-1);
+	}
+	 
+	validate_user_string(file); 
+
+	if (file_name_is_empty(file)) {
+    	return false;
+	}
+
+	if (file_name_is_too_long(file)) {
+		return false; 
+	}
+	
+	bool is_file_created = filesys_create(file, initial_size);
+
+	if (!is_file_created) {
+		return false; 
+	}
+
+	return true; 
+}
+
 /* The main system call interface */
 void
 syscall_handler (struct intr_frame *f UNUSED) {
 	// TODO: Your implementation goes here.
 
 	// 10번이 SYS_WRITE
-	int sys_call = f->R.rax;
+	int sys_call = f->R.rax; 
 
 	switch (sys_call) {
 		case SYS_WRITE:
 			f->R.rax = sys_write(f->R.rdi, f->R.rsi, f->R.rdx);
 			break;
 		case SYS_EXIT:
-			sys_exit(f->R.rdi);
+			sys_exit(f->R.rdi);		
+			break; 
+		case SYS_CREATE: 
+			f->R.rax = sys_create(f->R.rdi, f->R.rsi); 		
+			break; 
 	}
 
 }
