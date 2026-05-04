@@ -35,6 +35,7 @@ void syscall_handler(struct intr_frame *);
 // 시스템콜 함수
 static int sys_write(int fd, const void *buffer, unsigned size);
 static int sys_open(const char *file);
+static void sys_close(int fd);
 static int sys_read(int fd, void *buffer, unsigned size);
 static bool sys_create(const char *file, unsigned initial_size);
 static void sys_halt(void);
@@ -201,10 +202,13 @@ static int sys_write(int fd, const void *buffer, unsigned size)
 		return size;
 	}
 	if (fd <= 0)
+	{
 		return -1;
+	}
 	if (fd >= ARG_MAX)
+	{
 		return -1;
-
+	}
 	validate_user_buffer(buffer, size);
 
 	// fd_table[fd]의 file*를 가져옴
@@ -214,6 +218,27 @@ static int sys_write(int fd, const void *buffer, unsigned size)
 
 	// fd가 2이상이면 일반파일, 찾아온 file에 버퍼 내용을 size만큼 쓰기
 	return file_write(file, buffer, size);
+}
+
+// 파일 안에 데이터가 몇 바이트인지 확인
+static int sys_filesize(int fd)
+{
+	struct file *file;
+	if (fd < 2)
+	{
+		return -1;
+	}
+	if (fd >= ARG_MAX)
+	{
+		return -1;
+	}
+	file = find_file_by_fd(fd);
+	if (file == NULL)
+	{
+		return -1;
+	}
+	int length = file_length(file);
+	return length;
 }
 
 static int sys_read(int fd, void *buffer, unsigned size)
@@ -243,8 +268,10 @@ static int sys_read(int fd, void *buffer, unsigned size)
 		file = find_file_by_fd(fd);
 		if (file == NULL)
 			return -1;
-		return file_read(file, buffer, size);
+		int bytes = file_read(file, buffer, size);
+		return bytes;
 	}
+	return -1;
 }
 
 static int
@@ -278,6 +305,24 @@ sys_open(const char *file_name)
 
 	curr_thread->fd_table[curr_thread->next_fd] = file;
 	return curr_thread->next_fd++;
+}
+
+static void sys_close(int fd){
+	struct thread * curr = thread_current();
+	struct file * file;
+
+	if (fd < 2){
+		return;
+	}
+	if (fd >= ARG_MAX){
+		return;
+	}
+	file = find_file_by_fd(fd);
+	if (file == NULL){
+		return;
+	}
+	file_close(file);
+	curr->fd_table[fd]=NULL;
 }
 
 void sys_exit(int status)
@@ -347,6 +392,12 @@ void syscall_handler(struct intr_frame *f UNUSED)
 		break;
 	case SYS_READ:
 		f->R.rax = sys_read(f->R.rdi, f->R.rsi, f->R.rdx);
+		break;
+	case SYS_FILESIZE:
+		f->R.rax = sys_filesize(f->R.rdi);
+		break;
+	case SYS_CLOSE:
+		sys_close((int) f->R.rdi);
 		break;
 	default:
 		sys_exit(-1);
