@@ -353,7 +353,7 @@ process_exec (void *f_name) {
 	int argc = 0;
 	char *argv[ARG_MAX];
 	success = parse_command_line_args(cmd_line, &argc, argv);
-	if (!success){
+	if (!success){ 
 		palloc_free_page (file_name);
 		palloc_free_page (cmd_line);
 		return -1;
@@ -436,9 +436,18 @@ process_wait (tid_t child_tid UNUSED) {
 	/* XXX: Hint) The pintos exit if process_wait (initd), we recommend you
 	 * XXX:       to add infinite loop here before
 	 * XXX:       implementing the process_wait. */
+	// bool child_process_not_finished = 1; 
+	// tid_t parent_process_tid = thread_current()->tid; 
+
+	// while (child_process_not_finished) {
+		 
+	// }
+
     for (int i = 0; i < 100000; i++) {
         thread_yield();
     }
+	
+	// TODO 1: child process가 끝날때까지 대기하기 
     return -1;
 }
 

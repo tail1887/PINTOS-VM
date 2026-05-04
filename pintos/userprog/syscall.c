@@ -26,6 +26,7 @@
 #else
 #define user_mem_debug(...) ((void) 0)
 #endif
+#define MAX_FD 128 
 
 void syscall_entry (void);
 void syscall_handler (struct intr_frame *);
@@ -33,12 +34,14 @@ void syscall_handler (struct intr_frame *);
 // 시스템콜 함수
 static int sys_write(int fd, const void *buffer, unsigned size);
 static int sys_open(const char *file);
+static void sys_close(int fd); 
 void sys_exit(int status);
 
 // 기본 헬퍼 함수 
 static struct file* find_file_by_fd(int fd); 
 bool file_name_is_empty(const char* file); 
 bool file_name_is_too_long(const char* file);
+bool fd_validation(int fd); 
 
 // 유저 메모리 유효성 검사 함수
 static void fail_invalid_user_memory(void);
@@ -146,7 +149,7 @@ validate_user_string(const char *str) {
 	// 규칙 2: NUL 종료를 발견하면 검증을 종료한다.
 	while (true) {
 		validate_user_ptr(str);
-		if (*str == '\0') {
+		if (*str == '\0') { 
 			return;
 		}
 		str++;
@@ -159,6 +162,21 @@ static struct file* find_file_by_fd(int fd) {
 	struct thread* curr_thread = thread_current();
 
 	return curr_thread->fd_table[fd]; 
+}
+
+bool 
+file_name_is_empty(const char *file) {
+	return strlen(file) == 0; 
+}
+
+bool 
+file_name_is_too_long(const char *file) {
+	return strlen(file) > NAME_MAX; 
+}
+
+bool
+fd_validation(int fd) {
+	return fd >= 2 && fd < MAX_FD; 
 }
 
 // 시스템 콜 함수들
@@ -179,14 +197,18 @@ static int sys_write(int fd, const void *buffer, unsigned size)
 	// 함수가 반환하는 사이즈 그대로 반환
 	
 	file = find_file_by_fd(fd);
-	if (file == NULL)
+	if (file == NULL) {
 		return -1;
-	if (fd >= 2)
+	}
+	if (fd >= 2) {
 		return file_write(file, buffer, size);
-	if (fd == 0)
+	}
+	if (fd == 0) {
 		return -1;
-	if (fd < 0)
+	}
+	if (fd < 0) {
 		return -1;
+	}
 }
 
 static int 
@@ -213,10 +235,27 @@ sys_open(const char *file_name) {
 	}
 
 	struct thread *curr_thread = thread_current(); 
-
 	curr_thread->fd_table[curr_thread->next_fd] = file; 
 	
 	return curr_thread->next_fd++; 
+}
+
+static void 
+sys_close(int fd) {
+	// 정상적이지 않은 fd 값은 fd_table 범위 바깥에 있는 fd 
+	if (!fd_validation(fd)) {
+		return; 
+	} else {
+		struct thread *curr_thread = thread_current(); 
+		struct file* file = find_file_by_fd(fd); 
+
+		if (file == NULL) {
+			return; 
+		} 
+
+		file_close(file); 
+		curr_thread->fd_table[fd] = NULL; 
+	}
 }
 
 void
@@ -225,15 +264,6 @@ sys_exit(int status) {
     thread_exit();
 }
 
-bool 
-file_name_is_empty(const char *file) {
-	return strlen(file) == 0; 
-}
-
-bool 
-file_name_is_too_long(const char *file) {
-	return strlen(file) > NAME_MAX; 
-}
 
 static bool 
 sys_create(const char *file, unsigned initial_size) {
@@ -274,6 +304,9 @@ syscall_handler (struct intr_frame *f UNUSED) {
 			break;
 		case SYS_OPEN: 
 			f->R.rax = sys_open(f->R.rdi); 
+			break; 
+		case SYS_CLOSE: 
+			sys_close(f->R.rdi);
 			break; 
 		case SYS_EXIT:
 			sys_exit(f->R.rdi);		
