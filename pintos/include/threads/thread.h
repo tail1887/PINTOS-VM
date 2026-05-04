@@ -5,6 +5,7 @@
 #include <list.h>
 #include <stdint.h>
 #include "threads/interrupt.h"
+#include "threads/synch.h"
 
 #ifdef VM
 #include "vm/vm.h"
@@ -29,7 +30,22 @@ typedef int tid_t;
 #define PRI_DEFAULT 31                  /* Default priority. */
 #define PRI_MAX 63                      /* Highest priority. */
 
-#define ARG_MAX 128 
+#define ARG_MAX 128
+
+struct file;
+
+struct child_status {
+	tid_t tid;
+	int exit_status;
+	bool waited;
+	bool exited;
+	bool fork_success;
+	struct semaphore fork_sema;
+	struct semaphore wait_sema;
+	int ref_count;
+	struct lock ref_lock;
+	struct list_elem elem;
+};
 /* A kernel thread or user process.
  *
  * Each thread structure is stored in its own 4 kB page.  The
@@ -111,19 +127,18 @@ struct thread {
 	// donation 리스트 연결용 전용 노드 필드(donation_elem)를 둔다.
 	struct list_elem donation_elem;
 
-	// file pointers를 저장할 fd_table
-	struct file* fd_table[ARG_MAX];
-
-	// auto-increment를 저장하기 위한 next_fd 
-	int next_fd; 
-	
 	// donation 리스트 등록 상태 추적 플래그(in_donation_list)를 둔다.
 	bool in_donation_list;
 
-#ifdef USERPROG
 	/* Owned by userprog/process.c. */
 	uint64_t *pml4;                     /* Page map level 4 */
-#endif
+	struct file *fd_table[ARG_MAX];
+	int next_fd;
+	struct list children;
+	struct child_status *my_status;
+	int exit_status;
+	struct file *running_file;
+
 #ifdef VM
 	/* Table for whole virtual memory owned by thread. */
 	struct supplemental_page_table spt;

@@ -39,10 +39,16 @@ static int sys_open(const char *file);
 static void sys_close(int fd);
 static int sys_read(int fd, void *buffer, unsigned size);
 static bool sys_create(const char *file, unsigned initial_size);
+static bool sys_remove(const char *file);
+static int sys_filesize(int fd);
+static void sys_seek(int fd, unsigned position);
+static unsigned sys_tell(int fd);
+static int sys_exec(const char *cmd_line);
 static void sys_halt(void);
 void sys_exit(int status);
 
 // 기본 헬퍼 함수
+static int fd_alloc(struct file *file);
 static struct file *find_file_by_fd(int fd);
 static bool file_name_is_empty(const char *file);
 static bool file_name_is_too_long(const char *file);
@@ -53,6 +59,7 @@ static bool is_valid_user_ptr(const void *uaddr);
 static void validate_user_ptr(const void *uaddr);
 static void validate_user_buffer(const void *buffer, size_t size);
 static void validate_user_string(const char *str);
+static struct lock filesys_lock;
 
 /* System call.
  *
@@ -69,6 +76,7 @@ static void validate_user_string(const char *str);
 
 void syscall_init(void)
 {
+	lock_init(&filesys_lock);
 	write_msr(MSR_STAR, ((uint64_t)SEL_UCSEG - 0x10) << 48 |
 							((uint64_t)SEL_KCSEG) << 32);
 	write_msr(MSR_LSTAR, (uint64_t)syscall_entry);
@@ -187,10 +195,31 @@ validate_user_string(const char *str)
 // 기본 헬퍼 함수
 static struct file *find_file_by_fd(int fd)
 {
-	struct file *file;
-	struct thread *curr_thread = thread_current();
+	if (fd < 2 || fd >= ARG_MAX)
+		return NULL;
 
-	return curr_thread->fd_table[fd];
+	return thread_current()->fd_table[fd];
+}
+
+static int fd_alloc(struct file *file)
+{
+	struct thread *curr = thread_current();
+
+	if (file == NULL)
+		return -1;
+
+	for (int fd = 2; fd < ARG_MAX; fd++)
+	{
+		if (curr->fd_table[fd] == NULL)
+		{
+			curr->fd_table[fd] = file;
+			if (fd >= curr->next_fd)
+				curr->next_fd = fd + 1;
+			return fd;
+		}
+	}
+
+	return -1;
 }
 
 static int sys_write(int fd, const void *buffer, unsigned size)
@@ -219,7 +248,10 @@ static int sys_write(int fd, const void *buffer, unsigned size)
 		return -1;
 
 	// fd가 2이상이면 일반파일, 찾아온 file에 버퍼 내용을 size만큼 쓰기
-	return file_write(file, buffer, size);
+	lock_acquire(&filesys_lock);
+	int bytes_written = file_write(file, buffer, size);
+	lock_release(&filesys_lock);
+	return bytes_written;
 }
 
 // 파일 안에 데이터가 몇 바이트인지 확인
@@ -239,7 +271,10 @@ static int sys_filesize(int fd)
 	{
 		return -1;
 	}
-	return file_length(file);
+	lock_acquire(&filesys_lock);
+	int length = file_length(file);
+	lock_release(&filesys_lock);
+	return length;
 }
 
 static int sys_read(int fd, void *buffer, unsigned size)
@@ -257,7 +292,7 @@ static int sys_read(int fd, void *buffer, unsigned size)
 
 	if (fd == 0) // 표준입력,  size만큼 반복, 문자 하나를 읽어서 버퍼에 저장후, size반환
 	{
-		for (int i = 0; i < size; i++)
+		for (unsigned i = 0; i < size; i++)
 		{
 			((uint8_t *)buffer)[i] = input_getc();
 		}
@@ -269,7 +304,9 @@ static int sys_read(int fd, void *buffer, unsigned size)
 		file = find_file_by_fd(fd);
 		if (file == NULL)
 			return -1;
+		lock_acquire(&filesys_lock);
 		int bytes = file_read(file, buffer, size);
+		lock_release(&filesys_lock);
 		return bytes;
 	}
 	return -1;
@@ -294,7 +331,9 @@ sys_open(const char *file_name)
 	// filesys_open이 디렉터리에서 파일 이름을 찾고 inode를 얻음
 	// filesys_open 내부에서 file_open(inode) 호출
 	// file_open이 struct file * 객체를 만들어 반환
+	lock_acquire(&filesys_lock);
 	struct file *file = filesys_open(file_name);
+	lock_release(&filesys_lock);
 
 	// open-missing 테스트
 	if (file == NULL)
@@ -302,10 +341,15 @@ sys_open(const char *file_name)
 		return -1;
 	}
 
-	struct thread *curr_thread = thread_current();
+	int fd = fd_alloc(file);
+	if (fd == -1)
+	{
+		lock_acquire(&filesys_lock);
+		file_close(file);
+		lock_release(&filesys_lock);
+	}
 
-	curr_thread->fd_table[curr_thread->next_fd] = file;
-	return curr_thread->next_fd++;
+	return fd;
 }
 
 static void sys_close(int fd){
@@ -324,13 +368,17 @@ static void sys_close(int fd){
 		return;
 	}
 	
+	lock_acquire(&filesys_lock);
 	file_close(file);
+	lock_release(&filesys_lock);
 	curr->fd_table[fd]=NULL;
 }
 
 void sys_exit(int status)
 {
-	printf("%s: exit(%d)\n", thread_current()->name, status);
+	struct thread *curr = thread_current();
+	curr->exit_status = status;
+	printf("%s: exit(%d)\n", curr->name, status);
 	thread_exit();
 }
 
@@ -354,7 +402,9 @@ sys_create(const char *file, unsigned initial_size)
 		return false;
 	}
 
+	lock_acquire(&filesys_lock);
 	bool is_file_created = filesys_create(file, initial_size);
+	lock_release(&filesys_lock);
 
 	if (!is_file_created)
 	{
@@ -362,6 +412,61 @@ sys_create(const char *file, unsigned initial_size)
 	}
 
 	return true;
+}
+
+static bool
+sys_remove(const char *file)
+{
+	if (!is_valid_user_ptr(file))
+		sys_exit(-1);
+
+	validate_user_string(file);
+
+	if (file_name_is_empty(file) || file_name_is_too_long(file))
+		return false;
+
+	lock_acquire(&filesys_lock);
+	bool removed = filesys_remove(file);
+	lock_release(&filesys_lock);
+	return removed;
+}
+
+static void
+sys_seek(int fd, unsigned position)
+{
+	struct file *file = find_file_by_fd(fd);
+	if (file == NULL)
+		return;
+
+	lock_acquire(&filesys_lock);
+	file_seek(file, position);
+	lock_release(&filesys_lock);
+}
+
+static unsigned
+sys_tell(int fd)
+{
+	struct file *file = find_file_by_fd(fd);
+	if (file == NULL)
+		return (unsigned) -1;
+
+	lock_acquire(&filesys_lock);
+	unsigned position = file_tell(file);
+	lock_release(&filesys_lock);
+	return position;
+}
+
+static int
+sys_exec(const char *cmd_line)
+{
+	validate_user_string(cmd_line);
+
+	char *copied_cmd = palloc_get_page(0);
+	if (copied_cmd == NULL)
+		return -1;
+
+	strlcpy(copied_cmd, cmd_line, PGSIZE);
+	return process_exec(copied_cmd);
 }
 
 static void
@@ -379,44 +484,48 @@ void syscall_handler(struct intr_frame *f UNUSED)
 	switch (sys_call)
 	{
 	case SYS_WRITE:
-		f->R.rax = sys_write(f->R.rdi, f->R.rsi, f->R.rdx);
+		f->R.rax = sys_write((int) f->R.rdi, (const void *) f->R.rsi, (unsigned) f->R.rdx);
 		break;
 	case SYS_OPEN:
-		f->R.rax = sys_open(f->R.rdi);
+		f->R.rax = sys_open((const char *) f->R.rdi);
 		break;
 	case SYS_EXIT:
 		sys_exit(f->R.rdi);
 		break;
 	case SYS_CREATE:
-		f->R.rax = sys_create(f->R.rdi, f->R.rsi);
+		f->R.rax = sys_create((const char *) f->R.rdi, (unsigned) f->R.rsi);
 		break;
 	case SYS_HALT:
 		sys_halt();
 		break;
 	case SYS_READ:
-		f->R.rax = sys_read(f->R.rdi, f->R.rsi, f->R.rdx);
+		f->R.rax = sys_read((int) f->R.rdi, (void *) f->R.rsi, (unsigned) f->R.rdx);
 		break;
 	case SYS_FILESIZE:
-		f->R.rax = sys_filesize(f->R.rdi);
+		f->R.rax = sys_filesize((int) f->R.rdi);
 		break;
 	case SYS_CLOSE:
 		sys_close((int) f->R.rdi);
 		break;
-	case SYS_EXEC:
-	{
-		char *copied_cmd;
-
-		validate_user_string((const char *) f->R.rdi);
-		copied_cmd = palloc_get_page(0);
-		if (copied_cmd == NULL)
-		{
-			f->R.rax = -1;
-			break;
-		}
-		strlcpy(copied_cmd, (const char *) f->R.rdi, PGSIZE);
-		f->R.rax = process_exec(copied_cmd);
+	case SYS_REMOVE:
+		f->R.rax = sys_remove((const char *) f->R.rdi);
 		break;
-	}
+	case SYS_SEEK:
+		sys_seek((int) f->R.rdi, (unsigned) f->R.rsi);
+		break;
+	case SYS_TELL:
+		f->R.rax = sys_tell((int) f->R.rdi);
+		break;
+	case SYS_FORK:
+		validate_user_string((const char *) f->R.rdi);
+		f->R.rax = process_fork((const char *) f->R.rdi, f);
+		break;
+	case SYS_WAIT:
+		f->R.rax = process_wait((tid_t) f->R.rdi);
+		break;
+	case SYS_EXEC:
+		f->R.rax = sys_exec((const char *) f->R.rdi);
+		break;
 	default:
 		sys_exit(-1);
 		break;
