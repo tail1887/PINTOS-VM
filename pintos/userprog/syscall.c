@@ -195,6 +195,8 @@ static struct file *find_file_by_fd(int fd)
 static int sys_write(int fd, const void *buffer, unsigned size)
 {
 	struct file *file;
+	
+	validate_user_buffer(buffer, size);
 	// 표준출력, 버퍼에서 size만큼 읽어서 터미널에 출력
 	if (fd == 1)
 	{
@@ -209,7 +211,6 @@ static int sys_write(int fd, const void *buffer, unsigned size)
 	{
 		return -1;
 	}
-	validate_user_buffer(buffer, size);
 
 	// fd_table[fd]의 file*를 가져옴
 	file = find_file_by_fd(fd);
