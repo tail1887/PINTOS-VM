@@ -66,7 +66,7 @@ static int sys_read(int fd, void *buffer, unsigned size)
 
 	if (fd >= 2)
 	{
-		file = find_file_from_fd(fd);
+		file = find_file_by_fd(fd);
 		if (file == NULL)
 			return -1;
 		return file_read(file, buffer, size);
@@ -84,13 +84,13 @@ static int sys_write(int fd, const void *buffer, unsigned size)
 		return size;
 	}
 
-	// fd가 2이상일때, 현재 프로세스의 fd table에서 fd에 해당하는 struct file *를 찾음 find_file_from_fd()
+	// fd가 2이상일때, 현재 프로세스의 fd table에서 fd에 해당하는 struct file *를 찾음 find_file_by_fd()
 	// 없으면 return -1, 있으면 파일에 입력하는 함수 호출하고, 그 함수가 입력한 사이즈를 반환.
 	// fd에 해당하는 file* 찾는 함수 호출해서 파일 가져옴
 	// 있는지 없는지 검사
 	// 있다면 파일에 입력하는 함수 호출
 	// 함수가 반환하는 사이즈 그대로 반환
-	file = find_file_from_fd(fd);
+	file = find_file_by_fd(fd);
 	if (file == NULL)
 		return -1;
 	if (fd >= 2)
