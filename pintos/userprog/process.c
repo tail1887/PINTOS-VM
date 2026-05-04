@@ -47,10 +47,11 @@ bool parse_command_line_args(char *cmd_line, int *argc, char **argv){
 	if (token == NULL){
 		return false;
 	}
-	// 	토큰을 argv_temp[argc]에 저장한 뒤 argc를 증가시킨다.
-	if(*argc >= ARG_MAX){
+	// 
+ 	if(*argc >= ARG_MAX){
 		return false;
 	}
+	// 토큰을 argv[argc]에 저장한 뒤 argc를 증가시킨다.
 	argv[*argc] = token;
 	(*argc)++;
 
@@ -327,11 +328,9 @@ error:
  * Returns -1 on fail. */
 int
 process_exec (void *f_name) {
+	// 커맨드 라인 받기
 	char *file_name = f_name;
 	bool success;
-	// 기능 1: 커맨드라인 파싱 (토큰화) 
-	
-	// process_exec() 파싱 시작부
 	
 	// file_name NULL 여부를 먼저 검사한다.
 	if (file_name == NULL){
@@ -349,6 +348,9 @@ process_exec (void *f_name) {
 		palloc_free_page (file_name);
 		return -1;
 	}
+
+	// 기능 1: 커맨드라인 파싱 (토큰화) 
+	// process_exec() 파싱 시작부
 
 	// 쓰기 가능한 복사 버퍼를 할당한다.
 	char *cmd_line = palloc_get_page (0);
