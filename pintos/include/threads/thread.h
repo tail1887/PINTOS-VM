@@ -116,11 +116,6 @@ struct thread {
 
 	// auto-increment를 저장하기 위한 next_fd 
 	int next_fd; 
-
-	// child process list를 추적하기 위한 thread list 
-	struct list child_process_list; 
-
-	struct list_elem child_process_elem; 
 	
 	// donation 리스트 등록 상태 추적 플래그(in_donation_list)를 둔다.
 	bool in_donation_list;
