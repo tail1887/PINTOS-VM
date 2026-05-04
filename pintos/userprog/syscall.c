@@ -188,6 +188,10 @@ static int sys_write(int fd, const void *buffer, unsigned size)
 		putbuf(buffer, size);
 		return size;
 	}
+	if (fd <= 0)
+		return -1;
+	if (fd>= ARG_MAX)
+		return -1;
 
 	// fd_table[fd]의 file*를 가져옴
 	file = find_file_by_fd(fd);
@@ -195,13 +199,7 @@ static int sys_write(int fd, const void *buffer, unsigned size)
 		return -1;
 
 	// fd가 2이상이면 일반파일, 찾아온 file에 버퍼 내용을 size만큼 쓰기
-	if (fd >= 2)
-		return file_write(file, buffer, size);
-
-	if (fd == 0)
-		return -1;
-	if (fd < 0)
-		return -1;
+	return file_write(file, buffer, size);
 }
 
 static int sys_read(int fd, void *buffer, unsigned size)
