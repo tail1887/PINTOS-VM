@@ -308,19 +308,21 @@ sys_open(const char *file_name)
 }
 
 static void sys_close(int fd){
-	struct thread * curr = thread_current();
-	struct file * file;
-
-	if (fd < 2){
+	if (fd < 2) {
 		return;
 	}
 	if (fd >= ARG_MAX){
 		return;
 	}
+
+	struct thread * curr = thread_current();
+	struct file * file;
 	file = find_file_by_fd(fd);
-	if (file == NULL){
+
+	if (file == NULL) {
 		return;
 	}
+	
 	file_close(file);
 	curr->fd_table[fd]=NULL;
 }
