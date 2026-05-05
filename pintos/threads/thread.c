@@ -494,10 +494,10 @@ init_thread (struct thread *t, const char *name, int priority) {
 	for (int i = 0; i < ARG_MAX; i++) {
 		t->fd_table[i] = NULL;
 	}
-	list_init (&t->children);
-	t->my_status = NULL;
-	t->exit_status = 0;
-	t->running_file = NULL;
+	list_init (&t->children); // 이 thread가 만든 자식 process 기록들을 담을 리스트를 비워 둔다.
+	t->my_status = NULL; // 아직 부모의 children 리스트에 연결된 child_status가 없다는 뜻이다.
+	t->exit_status = 0; // 정상 종료 기본값으로 시작하고, sys_exit에서 실제 값으로 바뀐다.
+	t->running_file = NULL; // 아직 실행 파일을 load하지 않았으므로 deny-write 대상도 없다.
 
 	list_init(&t->donation_candidates); // donation 리스트를 초기화한다.
 	// in_donation_list를 false로 초기화한다.

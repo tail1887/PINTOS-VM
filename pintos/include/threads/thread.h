@@ -35,16 +35,16 @@ typedef int tid_t;
 struct file;
 
 struct child_status {
-	tid_t tid;
-	int exit_status;
-	bool waited;
-	bool exited;
-	bool fork_success;
-	struct semaphore fork_sema;
-	struct semaphore wait_sema;
-	int ref_count;
-	struct lock ref_lock;
-	struct list_elem elem;
+	tid_t tid;                  // 자식 프로세스의 thread id를 저장한다.
+	int exit_status;            // 자식 프로세스가 종료할 때 남긴 exit status를 저장한다.
+	bool waited;                // 부모가 이 자식에 대해 wait을 이미 호출했는지 표시한다.
+	bool exited;                // 자식 프로세스가 종료되었는지 표시한다.
+	bool fork_success;          // fork 과정에서 자식 복사가 성공했는지 부모에게 알려준다.
+	struct semaphore fork_sema; // 부모가 자식의 fork 성공 여부를 기다릴 때 사용한다.
+	struct semaphore wait_sema; // 부모가 자식 종료를 기다릴 때 사용한다.
+	int ref_count;              // 부모와 자식이 공유하는 child_status의 참조 수를 센다.
+	struct lock ref_lock;       // ref_count 변경을 보호한다.
+	struct list_elem elem;      // 부모 thread의 children 리스트에 연결하기 위한 노드다.
 };
 /* A kernel thread or user process.
  *
@@ -132,12 +132,12 @@ struct thread {
 
 	/* Owned by userprog/process.c. */
 	uint64_t *pml4;                     /* Page map level 4 */
-	struct file *fd_table[ARG_MAX];
-	int next_fd;
-	struct list children;
-	struct child_status *my_status;
-	int exit_status;
-	struct file *running_file;
+	struct file *fd_table[ARG_MAX];     // fd -> file.
+	int next_fd;                        // 다음 fd.
+	struct list children;               // 자식 목록.
+	struct child_status *my_status;     // 내 종료 기록.
+	int exit_status;                    // 내 종료값.
+	struct file *running_file;          // 실행 파일.
 
 #ifdef VM
 	/* Table for whole virtual memory owned by thread. */

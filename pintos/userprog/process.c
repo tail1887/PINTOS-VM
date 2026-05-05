@@ -36,6 +36,12 @@ struct fork_args {
 	struct intr_frame parent_if;
 };
 
+/*
+__do_fork()는 인자를 void * 하나만 받을 수 있어.
+근데 우리는 parent, child_status, intr_frame 세 개를 넘겨야 해.
+그래서 세 개를 묶는 상자를 만드는 거야.
+*/
+
 struct initd_args {
 	char *file_name;
 	struct child_status *child_status;
@@ -416,7 +422,7 @@ process_fork (const char *name, struct intr_frame *if_ UNUSED) {
 	if (cs == NULL)
 		return TID_ERROR;
 
-	struct fork_args *args = palloc_get_page(0);
+	struct fork_args *args = palloc_get_page(0); // 할당을 하려고합니다.
 	if (args == NULL)
 	{
 		palloc_free_page(cs);
@@ -491,7 +497,7 @@ duplicate_pte (uint64_t *pte, void *va, void *aux) {
 
 	/*
      * pml4_for_each는 kernel page도 볼 수 있으니,
-     * kernel address면 복사하지 않고 넘어간다.
+     * kernel address면 복사하지 않고 넘어간다. 커널 주소는 복사하면 안된다.
      */
 	if (is_kernel_vaddr(va))
 		return true;
@@ -525,16 +531,22 @@ duplicate_pte (uint64_t *pte, void *va, void *aux) {
  *       this function. */
 static void
 __do_fork (void *aux) {
-	struct intr_frame if_;
-	struct fork_args *args = aux;
+	struct intr_frame if_;//
+	struct fork_args *args = aux;//process_fork()에서 args를 넘겼으니까 여기서 다시 꺼내야 함.
+
 	struct thread *parent = args->parent;
-	struct child_status *cs = args->child_status;
-	struct thread *current = thread_current ();
+
+	struct child_status *cs = args->child_status;//parent는 주소 공간 복사에 필요하고, cs는 자식의 my_status에 연결해야 함.
+
+	struct thread *current = thread_current ();// 지금 __do_fork()를 실행하는 thread가 자식임.
+
 
 	/* 1. Read the cpu context to local stack. */
-	memcpy (&if_, &args->parent_if, sizeof if_);
-	if_.R.rax = 0;
-	current->my_status = cs;
+	memcpy (&if_, &args->parent_if, sizeof if_);//자식은 부모가 syscall에 들어왔던 유저 실행 상태를 복사해서 시작해야 함.
+
+	current->my_status = cs; //자식이 exit할 때 자기 기록부에 exit_status를 남겨야 함.
+	if_.R.rax = 0;//fork는 부모에게는 자식 pid를 반환하고, 자식에게는 0을 반환해야 함.
+
 
 	/* 2. Duplicate PT */
 	current->pml4 = pml4_create();
@@ -723,11 +735,11 @@ process_wait (tid_t child_tid UNUSED) {
 		}
 	}
 
-	if (target == NULL || target->waited)
+	if (target == NULL || target->waited) //타겟이 없으면 -1 리턴
 		return -1;
 
 	target->waited = true;
-	if (!target->exited)
+	if (!target->exited)//자식이 아직 exit하지 않았으면 부모는 기다려야 한다.
 		sema_down(&target->wait_sema);
 
 	int status = target->exit_status;
