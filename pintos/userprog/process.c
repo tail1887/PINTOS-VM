@@ -63,12 +63,34 @@ child_status_create(void)
 	if (cs == NULL)
 		return NULL;
 
+	/*
+     * 아직 thread_create 전이라 실제 자식 tid를 모른다.
+     * thread_create 성공 후에 진짜 tid를 채운다.
+     */
 	cs->tid = TID_ERROR;
+   /*
+     * 자식이 정상적으로 exit status를 남기기 전 기본값이다.
+     * 비정상 종료나 실패 경로에서는 -1을 반환해야 하므로 -1로 둔다.
+     */
 	cs->exit_status = -1;
+    /*
+     * 부모가 아직 이 자식을 wait하지 않았다는 뜻이다.
+     * wait은 같은 자식에게 한 번만 가능하다.
+     */
 	cs->waited = false;
+    /*
+     * 자식이 아직 종료되지 않았다는 뜻이다.
+     * 자식이 process_exit()에 들어가면 true로 바꿀 것이다.
+     */
 	cs->exited = false;
+	// fork 성공 여부를 추적하는 필드를 false로 초기화한다.
 	cs->fork_success = false;
 	sema_init(&cs->fork_sema, 0);
+	/*
+     * 부모가 wait()에서 잠들 때 사용할 세마포어다.
+     * 0으로 시작해야 sema_down()을 호출한 부모가 잠든다.
+     * 자식이 종료할 때 sema_up()으로 부모를 깨운다.
+     */
 	sema_init(&cs->wait_sema, 0);
 	cs->ref_count = 2;
 	lock_init(&cs->ref_lock);
@@ -142,7 +164,7 @@ bool parse_command_line_args(char *cmd_line, int *argc, char **argv){
 	if (token == NULL){
 		return false;
 	}
-	// 
+	// 	토큰을 argv_temp[argc]에 저장한 뒤 argc를 증가시킨다.
  	if(*argc >= ARG_MAX){
 		return false;
 	}
@@ -274,6 +296,7 @@ validate_user_entry_frame (struct intr_frame *user_if)
 	if (user_if == NULL)
 		return false;
 
+	// RSP가 사용자 스택 영역인지 확인한다.
 	if (!is_user_vaddr ((void *) user_if->rsp))
 		return false;
 
@@ -380,7 +403,15 @@ initd (void *f_name) {
  * TID_ERROR if the thread cannot be created. */
 tid_t
 process_fork (const char *name, struct intr_frame *if_ UNUSED) {
+   /*
+     * fork를 호출한 현재 thread가 부모다.
+     * 부모의 children 리스트에 자식 기록부를 넣을 것이다.
+     */
 	struct thread *parent = thread_current();
+    /*
+     * 자식 기록부를 한 페이지 할당한다.
+     * malloc은 쓰지 않고, Pintos에서 이미 쓰고 있는 palloc을 사용한다.
+     */
 	struct child_status *cs = child_status_create();
 	if (cs == NULL)
 		return TID_ERROR;
@@ -395,19 +426,43 @@ process_fork (const char *name, struct intr_frame *if_ UNUSED) {
 	args->parent = parent;
 	args->child_status = cs;
 	memcpy(&args->parent_if, if_, sizeof *if_);
+	/*
+	parent: 자식이 부모 주소 공간을 복사하려고 필요
+	child_status: 자식이 자기 기록부를 알아야 함
+	parent_if: 자식이 부모의 유저 실행 상태를 복사해야 함
 
+	*/
+
+/*
+     * 부모의 children 리스트에 이 자식 기록부를 넣는다.
+     * 나중에 process_wait(child_tid)가 이 리스트에서 child_tid를 찾는다.
+     */
 	list_push_back(&parent->children, &cs->elem);
 
+    /*
+     * 실제 자식 thread를 만든다.
+     * 지금은 parent만 넘기고 있지만,
+     * 다음 단계에서는 parent, cs, if_를 묶어서 __do_fork에 넘겨야 한다.
+     */
 	tid_t tid = thread_create(name, PRI_DEFAULT, __do_fork, args);
 	if (tid == TID_ERROR)
 	{
+    /*
+     * thread 생성이 실패하면 방금 만든 기록부도 필요 없다.
+     * 부모 리스트에서 빼고 페이지를 반환한다.
+     */
 		list_remove(&cs->elem);
 		palloc_free_page(args);
 		palloc_free_page(cs);
 		return TID_ERROR;
 	}
 
+    /*
+     * thread_create가 성공하면 이제 자식 tid를 알 수 있다.
+     * 기록부에 진짜 자식 tid를 저장한다.
+     */
 	cs->tid = tid;
+	//성공을 했으니  세마 다운해야한다 부모를 다운하고 자식을 살린다.
 	sema_down(&cs->fork_sema);
 
 	if (!cs->fork_success)
@@ -417,6 +472,9 @@ process_fork (const char *name, struct intr_frame *if_ UNUSED) {
 		return TID_ERROR;
 	}
 
+    /*
+     * 부모에게는 fork의 반환값으로 자식 tid를 돌려준다.
+     */
 	return tid;
 }
 
@@ -431,18 +489,26 @@ duplicate_pte (uint64_t *pte, void *va, void *aux) {
 	void *newpage;
 	bool writable;
 
+	/*
+     * pml4_for_each는 kernel page도 볼 수 있으니,
+     * kernel address면 복사하지 않고 넘어간다.
+     */
 	if (is_kernel_vaddr(va))
 		return true;
 
+	//부모의 va가 실제로 어떤 물리 페이지에 매핑되어 있는지 찾는다.
 	parent_page = pml4_get_page (parent->pml4, va);
 	if (parent_page == NULL)
 		return false;
 
+	//자식에게 줄 페이지를 할당한다.
 	newpage = palloc_get_page(PAL_USER);
 	if (newpage == NULL)
 		return false;
 
+	//부모 페이지  그대로 복사한다.
 	memcpy(newpage, parent_page, PGSIZE);
+	 //부모페이지가 쓸 수 있는지 권한을 확인합니다.
 	writable = is_writable(pte);
 
 	if (!pml4_set_page (current->pml4, va, newpage, writable)) {
@@ -465,6 +531,7 @@ __do_fork (void *aux) {
 	struct child_status *cs = args->child_status;
 	struct thread *current = thread_current ();
 
+	/* 1. Read the cpu context to local stack. */
 	memcpy (&if_, &args->parent_if, sizeof if_);
 	if_.R.rax = 0;
 	current->my_status = cs;
@@ -490,7 +557,7 @@ __do_fork (void *aux) {
 		goto error;
 
 	process_init ();
-	cs->fork_success = true;
+	cs->fork_success = true; //복사를 성공하면 부모 프로세스를 꺠웁니다.
 	sema_up(&cs->fork_sema);
 	palloc_free_page(args);
 
@@ -640,13 +707,14 @@ process_exec (void *f_name) {
  * does nothing. */
 int
 process_wait (tid_t child_tid UNUSED) {
-	struct thread *curr = thread_current();
-	struct child_status *target = NULL;
+	struct thread *curr = thread_current(); // wait를 호출한 프로세스가 부모이다.
+	struct child_status *target = NULL;// 자식을 아직 못찾았으니 NULL 로 초기화
 
 	for (struct list_elem *e = list_begin(&curr->children);
 		 e != list_end(&curr->children);
 		 e = list_next(e))
 	{
+		//elem으로 자식 존재를 알 수 없다. 따라서 안에 있는 구조체를 꺼낸다.
 		struct child_status *cs = list_entry(e, struct child_status, elem);
 		if (cs->tid == child_tid)
 		{
@@ -663,6 +731,7 @@ process_wait (tid_t child_tid UNUSED) {
 		sema_down(&target->wait_sema);
 
 	int status = target->exit_status;
+	// 여기까지 왔으면 이미 자식은 종료상태 부모는 깨어남ㄴ
 	list_remove(&target->elem);
 	child_status_release(target);
 	return status;
@@ -672,6 +741,7 @@ process_wait (tid_t child_tid UNUSED) {
 void
 process_exit (void) {
 	struct thread *curr = thread_current ();
+	// 이걸 추가해야 프로세스가 끝날때 write 금지가 풀린다.
 	close_running_file(curr);
 
 	if (curr->my_status != NULL)

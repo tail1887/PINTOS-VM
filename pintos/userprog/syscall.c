@@ -43,7 +43,7 @@ static bool sys_remove(const char *file);
 static int sys_filesize(int fd);
 static void sys_seek(int fd, unsigned position);
 static unsigned sys_tell(int fd);
-static int sys_exec(const char *cmd_line);
+static int sys_exec(const char *cmd_line); // 실행파일 선언
 static void sys_halt(void);
 void sys_exit(int status);
 
@@ -456,6 +456,8 @@ sys_tell(int fd)
 	return position;
 }
 
+//시스템 실행 시스템 콜 핸들러에서 호출되는 sys_exec()
+//함수를 구현한다.
 static int
 sys_exec(const char *cmd_line)
 {

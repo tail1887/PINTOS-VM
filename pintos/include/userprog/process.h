@@ -3,6 +3,7 @@
 
 #include "threads/thread.h"
 
+// 최대 인자 수 정의
 #define ARG_MAX 128
 
 tid_t process_create_initd (const char *file_name);

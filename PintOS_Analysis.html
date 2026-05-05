@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>PintOS 프로젝트 완전 분석</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<script>mermaid.initialize({startOnLoad:true, theme:'default', securityLevel:'loose'});</script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700&family=JetBrains+Mono:wght@400;500&display=swap');
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family:'Noto Sans KR',sans-serif; font-size:11pt; line-height:1.7;
+  color:#1a1a2e; max-width:900px; margin:0 auto; padding:30px; }
+h1 { font-size:24pt; color:#0f3460; border-bottom:3px solid #0f3460; padding-bottom:8px; margin:30px 0 15px; }
+h2 { font-size:18pt; color:#16213e; border-bottom:2px solid #e94560; padding-bottom:5px; margin:25px 0 12px; }
+h3 { font-size:14pt; color:#533483; margin:20px 0 10px; }
+h4 { font-size:12pt; color:#e94560; margin:15px 0 8px; }
+p { margin:8px 0; }
+table { border-collapse:collapse; width:100%; margin:12px 0; font-size:10pt; }
+th { background:#0f3460; color:white; padding:8px 10px; text-align:left; }
+td { border:1px solid #ddd; padding:6px 10px; }
+tr:nth-child(even) { background:#f5f5f5; }
+pre { background:#1a1a2e; color:#e0e0e0; padding:14px; border-radius:6px;
+  overflow-x:auto; margin:10px 0; font-size:9.5pt; }
+code { font-family:'JetBrains Mono',monospace; font-size:9.5pt; background:#eef; padding:1px 4px; border-radius:3px; }
+pre code { background:none; padding:0; color:#e0e0e0; }
+blockquote { background:#fff3cd; border-left:4px solid #e94560; padding:8px 14px; margin:10px 0; font-size:10.5pt; }
+hr { border:none; border-top:2px solid #ccc; margin:20px 0; }
+.mermaid { margin:15px auto; text-align:center; }
+strong { color:#0f3460; }
+@media print {
+  body { font-size:10pt; padding:15px; }
+  pre { font-size:8.5pt; }
+  .mermaid { page-break-inside:avoid; }
+  h1,h2,h3 { page-break-after:avoid; }
+}
+</style>
+</head>
+<body>
+<p>﻿# PintOS ?꾨줈?앺듃 ?꾩쟾 遺꾩꽍</p><p><blockquote>**遺꾩꽍 湲곗? 釉뚮옖移?*: <code>codex/complete-system-call-features</code></blockquote>
+<blockquote><strong>鍮꾧탳 ???*: <code>main</code> 釉뚮옖移?> </strong>遺꾩꽍 ?쇱떆**: 2026-05-05</blockquote></p><p><hr></p><p><h2>1. ?꾩옱 援ы쁽??湲곕뒫 踰붿＜</h2></p><p><table><tr><th>#</th><th>湲곕뒫 踰붿＜</th><th>援ы쁽 ?곹깭</th></tr><tr><td>1</td><td>Alarm Sleep (timer_sleep)</td><td>???꾨즺</td></tr><tr><td>2</td><td>Priority Scheduling</td><td>???꾨즺</td></tr><tr><td>3</td><td>Priority Donation (Synchronization)</td><td>???꾨즺</td></tr><tr><td>4</td><td>Argument Passing</td><td>???꾨즺</td></tr><tr><td>5</td><td>System Call ?명봽??</td><td>???꾨즺</td></tr><tr><td>6</td><td>File Descriptor Table</td><td>???꾨즺</td></tr><tr><td>7</td><td>File 愿??Syscall (open/close/read/write/create/remove/seek/tell/filesize)</td><td>???꾨즺</td></tr><tr><td>8</td><td>Process Wait / Exit</td><td>???꾨즺</td></tr><tr><td>9</td><td>Fork</td><td>???꾨즺</td></tr><tr><td>10</td><td>Exec</td><td>???꾨즺</td></tr><tr><td>11</td><td>Halt</td><td>???꾨즺</td></tr><tr><td>12</td><td>User Memory Validation</td><td>???꾨즺</td></tr><tr><td>13</td><td>MLFQS (Advanced Scheduler)</td><td>??誘몄셿??</td></tr><tr><td>14</td><td>Virtual Memory (Project 3)</td><td>??誘멸뎄??</td></tr></table></p><p><hr></p><p><h2>2. ?섏젙???뚯씪 紐⑸줉</h2></p><p><table><tr><th>?뚯씪 寃쎈줈</th><th>?섏젙???듭떖 ?⑥닔/援ъ“泥?</th><th>臾댁뾿??諛붽엥?붿?</th><th>??諛붽엥?붿?</th><th>?곌껐 湲곕뒫</th></tr><tr><td><code>include/threads/thread.h</code></td><td><code>struct thread</code>, <code>struct child_status</code></td><td>wakeup_tick, priority donation ?꾨뱶, fd_table, children 由ъ뒪?? my_status, running_file 異붽?</td><td>alarm sleep, priority donation, ?뚯씪 ?쒖뒪?? ?꾨줈?몄뒪 愿怨?異붿쟻???꾩슂</td><td>?꾩껜</td></tr><tr><td><code>threads/thread.c</code></td><td><code>init_thread()</code>, <code>thread_unblock()</code>, <code>thread_yield()</code>, <code>thread_set_priority()</code>, <code>thread_create()</code>, <code>cmp_priority()</code>, <code>try_preempt_current()</code>, <code>thread_recalculate_priority()</code></td><td>priority ?뺣젹 ?쎌엯, donation ?ш퀎?? ?좎젏 ?먮떒, fd/children 珥덇린??</td><td>priority scheduling + donation + userprog 珥덇린??</td><td>Priority, Alarm, Userprog</td></tr><tr><td><code>devices/timer.c</code></td><td><code>timer_sleep()</code>, <code>timer_interrupt()</code>, <code>sleep_list</code>, <code>thread_compare_wakeup()</code></td><td>busy-wait ??sleep_list + block 諛⑹떇?쇰줈 蹂寃?</td><td>CPU ??퉬 諛⑹? (alarm clock 援ы쁽)</td><td>Alarm Sleep</td></tr><tr><td><code>threads/synch.c</code></td><td><code>sema_up()</code>, <code>lock_acquire()</code>, <code>lock_release()</code>, <code>cond_signal()</code></td><td>priority 湲곕컲 waiter ?좏깮, donation 泥댁씤 ?꾪뙆, donation ?댁젣</td><td>priority donation / priority-aware sync</td><td>Priority Donation</td></tr><tr><td><code>userprog/syscall.c</code></td><td><code>syscall_handler()</code>, <code>sys_write/read/open/close/create/remove/seek/tell/filesize/exec/exit/halt/fork/wait</code>, ?좏슚??寃???⑥닔??</td><td>15媛??쒖뒪?쒖퐳 ?꾩껜 援ы쁽 + filesys_lock + ?좎? 硫붾え由?寃利?</td><td>?좎? ?꾨줈洹몃옩??而ㅻ꼸 ?쒕퉬?ㅻ? ?덉쟾?섍쾶 ?ъ슜?섍린 ?꾪빐</td><td>Syscall ?꾩껜</td></tr><tr><td><code>userprog/process.c</code></td><td><code>process_exec()</code>, <code>process_fork()</code>, <code>process_wait()</code>, <code>process_exit()</code>, <code>process_create_initd()</code>, <code>initd()</code>, <code>__do_fork()</code>, <code>load()</code>, argument passing ?⑥닔?? <code>child_status_create/release()</code>, <code>duplicate_fd_table()</code></td><td>而ㅻ㎤?쒕씪???뚯떛, ?ㅽ깮 援ъ꽦, fork/wait/exit ?꾩껜 援ы쁽, child_status 湲곕컲 遺紐??먯떇 ?숆린??</td><td>?좎? ?꾨줈洹몃옩 ?ㅽ뻾???듭떖 ?앸챸二쇨린 愿由?</td><td>Argument Passing, Fork, Wait, Exit, Exec</td></tr><tr><td><code>include/userprog/process.h</code></td><td><code>ARG_MAX</code> 留ㅽ겕濡?</td><td>ARG_MAX 128 ?뺤쓽 異붽?</td><td>fd_table ?ш린? ?몄옄 ?쒗븳 ?듭씪</td><td>?꾩껜</td></tr></table></p><p><hr></p><p><h2>3. 湲곕뒫蹂??곸꽭 遺꾩꽍</h2></p><p><hr></p><p><h3>湲곕뒫 1: Alarm Sleep (timer_sleep)</h3></p><p><h4>1) ??湲곕뒫???섎뒗 ???ㅻ젅?쒓? "N ???숈븞 ?좊뱾怨??띕떎"怨??붿껌?섎㈃, CPU瑜???퉬?섏? ?딄퀬 ?뺥솗??N???꾩뿉 源⑥썙二쇰뒗 湲곕뒫?대떎.</h4></p><p><h4>2) ???꾩슂?쒖?</h4>
+?먮옒 PintOS??<code>timer_sleep()</code>? busy-wait 諛⑹떇?댁뿀?? 猷⑦봽瑜??뚮㈃??怨꾩냽 ?쒓컙???뺤씤?섎땲 CPU瑜?100% 癒밸뒗?? ?닿구 "?좎옄??由ъ뒪?몄뿉 ?ｊ퀬 釉붾줉?쒗궓 ?? ?쒓컙???섎㈃ 源⑥슦湲? 諛⑹떇?쇰줈 諛붽퓭???쒕떎.</p><p><h4>3) ?섏젙???뚯씪</h4>
+- <code>devices/timer.c</code> ???듭떖 援ы쁽
+- <code>include/threads/thread.h</code> ??<code>wakeup_tick</code> ?꾨뱶 異붽?
+- <code>threads/thread.c</code> ??<code>init_thread()</code>?먯꽌 <code>wakeup_tick = 0</code> 珥덇린??
+<h4>4) ?섏젙???⑥닔/援ъ“泥?</h4>
+<table><tr><th>?⑥닔/援ъ“泥?</th><th>??븷</th></tr><tr><td><code>struct thread.wakeup_tick</code></td><td>???ㅻ젅?쒓? 紐?踰덉㎏ tick??源⑥뼱?섏빞 ?섎뒗吏 ???</td></tr><tr><td><code>sleep_list</code> (static, timer.c)</td><td>?좎옄???ㅻ젅?쒕뱾??由ъ뒪?? wakeup_tick ?ㅻ쫫李⑥닚 ?뺣젹</td></tr><tr><td><code>thread_compare_wakeup()</code></td><td>sleep_list ?뺣젹 鍮꾧탳 ?⑥닔</td></tr><tr><td><code>timer_sleep()</code></td><td>wakeup_tick 怨꾩궛 ??sleep_list ?쎌엯 ??thread_block()</td></tr><tr><td><code>timer_interrupt()</code></td><td>留?tick留덈떎 sleep_list ?욎そ ?뺤씤 ???쒓컙 ???ㅻ젅??unblock</td></tr></table></p><p><h4>5) ?ㅽ뻾 ?먮쫫</h4></p><p><pre><code class="">?ㅻ젅?쒓? timer_sleep(100) ?몄텧
+  ??ticks &lt;= 0?대㈃ 利됱떆 由ы꽩
+  ???명꽣?쏀듃 鍮꾪솢?깊솕 (?먯옄??蹂댁옣)
+  ??cur-&gt;wakeup_tick = ?꾩옱 tick + 100
+  ??sleep_list??wakeup_tick 湲곗? ?ㅻ쫫李⑥닚 ?쎌엯
+  ??thread_block() ???ㅻ젅??BLOCKED ?곹깭
+  ???명꽣?쏀듃 蹂듭썝</p><p>(留?tick留덈떎 timer_interrupt ?ㅽ뻾)
+  ??ticks++ ??thread_tick()
+  ??sleep_list ?욎뿉?쒕???wakeup_tick &lt;= ?꾩옱 ticks??寃??꾨?
+    ??list_pop_front ??thread_unblock(t) ??try_preempt_current()
+</code></pre></p><p><h4>6) ?듭떖 ?먮즺援ъ“</h4>
+- <code>sleep_list</code>: ?뺣젹??留곹겕??由ъ뒪?? 媛??癒쇱? 源⑥뼱???ㅻ젅?쒓? ?욎뿉 ?덉쓬
+- <code>struct thread.wakeup_tick</code>: int64_t. 源⑥뼱???덈? tick 媛?
+<h4>7) 二쇱쓽????- sleep_list ?쎌엯怨?block? 諛섎뱶???명꽣?쏀듃 OFF ?곹깭?먯꽌 ?댁빞 ??(race condition 諛⑹?)</h4>
+- timer_interrupt???명꽣?쏀듃 ?몃뱾???덉뿉???ㅽ뻾?섎?濡?thread_yield() ???intr_yield_on_return() ?ъ슜</p><p><h4>8) ?꾩옱 援ы쁽 ?곹깭: ???꾨즺</h4></p><p>**愿???뚯뒪??*: <code>alarm-single</code>, <code>alarm-multiple</code>, <code>alarm-simultaneous</code>, <code>alarm-zero</code>, <code>alarm-negative</code>, <code>alarm-priority</code></p><p><blockquote>- ??以??붿빟: busy-wait瑜??놁븷怨?sleep_list + block/unblock 諛⑹떇?쇰줈 ?꾪솚</blockquote>
+<blockquote>- ?듭떖 ?⑥닔: <code>timer_sleep()</code>, <code>timer_interrupt()</code></blockquote>
+<blockquote>- ?듭떖 援ъ“泥? <code>sleep_list</code>, <code>thread.wakeup_tick</code></blockquote>
+<blockquote>- 吏꾩쭨 ?댄빐?댁빞 ?섎뒗 ?ъ씤?? ?명꽣?쏀듃 鍮꾪솢?깊솕 援ш컙?먯꽌 ?쎌엯+釉붾줉???먯옄?곸쑝濡?泥섎━?섎뒗 寃?</blockquote>
+<hr></p><p><h3>湲곕뒫 2: Priority Scheduling</h3></p><p><h4>1) ??湲곕뒫???섎뒗 ???щ윭 ?ㅻ젅?쒓? ?ㅽ뻾 媛?ν븷 ?? ?곗꽑?쒖쐞媛 ?믪? ?ㅻ젅?쒓? 癒쇱? CPU瑜??곕룄濡?蹂댁옣?쒕떎.</h4></p><p><h4>2) ???꾩슂?쒖?</h4>
+?먮옒 PintOS??round-robin 諛⑹떇?대씪 ?꾧? 癒쇱? ?ㅽ뻾?좎? 紐⑤Ⅸ?? ?곗꽑?쒖쐞媛 ?믪? ?ㅻ젅?쒓? 諛섎뱶??癒쇱? ?ㅽ뻾?섍쾶 ?댁빞 ?뚯뒪?몃? ?듦낵?????덈떎.</p><p><h4>3) ?섏젙???뚯씪</h4>
+- <code>threads/thread.c</code>
+- <code>threads/synch.c</code></p><p><h4>4) ?섏젙???⑥닔</h4></p><p><table><tr><th>?⑥닔</th><th>蹂寃??댁슜</th></tr><tr><td><code>cmp_priority()</code></td><td>priority ?대┝李⑥닚 鍮꾧탳 ?⑥닔 (?믪? 寃??욎뿉)</td></tr><tr><td><code>thread_unblock()</code></td><td><code>list_push_back</code> ??<code>list_insert_ordered</code> (priority ?뺣젹)</td></tr><tr><td><code>thread_yield()</code></td><td>ready_list???꾩옱 ?ㅻ젅??蹂듦????뚮룄 <code>list_insert_ordered</code> ?ъ슜</td></tr><tr><td><code>thread_create()</code></td><td>unblock ??<code>try_preempt_current()</code> ?몄텧</td></tr><tr><td><code>try_preempt_current()</code></td><td>ready_list 理쒓퀬 priority > ?꾩옱 ?ㅻ젅?쒕㈃ ?좎젏</td></tr><tr><td><code>thread_set_priority()</code></td><td>base_priority 媛깆떊 ??recalculate ???좎젏 ?먮떒</td></tr><tr><td><code>sema_up()</code></td><td>waiters?먯꽌 理쒓퀬 priority ?ㅻ젅?쒕? 怨⑤씪 unblock</td></tr><tr><td><code>cond_signal()</code></td><td>condition waiters?먯꽌 理쒓퀬 priority ?ㅻ젅?쒕? 怨⑤씪 signal</td></tr></table></p><p><h4>5) ?ㅽ뻾 ?먮쫫</h4></p><p><pre><code class="">thread_create("A", 40, ...)
+  ??init_thread ??priority=40
+  ??thread_unblock(A) ??ready_list??priority ?쒖꽌?濡??쎌엯
+  ??try_preempt_current()
+    ??ready_list 留???=理쒓퀬 priority)???꾩옱蹂대떎 ?믪쑝硫?
+      ???명꽣?쏀듃 而⑦뀓?ㅽ듃硫?intr_yield_on_return()
+      ???꾨땲硫?thread_yield()
+</code></pre></p><p><h4>6) ?듭떖 ?먮즺援ъ“</h4>
+- <code>ready_list</code>: priority ?대┝李⑥닚 ?뺣젹??由ъ뒪?? <code>list_pop_front</code>?섎㈃ 理쒓퀬 priority ?ㅻ젅??
+<h4>7) 二쇱쓽????- ready_list 議곗옉? ??긽 ?명꽣?쏀듃 OFF?먯꽌</h4>
+- <code>thread_yield</code>?먯꽌???뺣젹 ?쎌엯 ?꾩닔</p><p><h4>8) ?꾩옱 援ы쁽 ?곹깭: ???꾨즺</h4></p><p>**愿???뚯뒪??*: <code>priority-change</code>, <code>priority-preempt</code>, <code>priority-fifo</code>, <code>priority-sema</code>, <code>priority-condvar</code></p><p><blockquote>- ??以??붿빟: ready_list瑜?priority ?뺣젹濡??좎??섍퀬, ???ㅻ젅?쒓? ???믪쑝硫?利됱떆 ?좎젏</blockquote>
+<blockquote>- ?듭떖 ?⑥닔: <code>cmp_priority()</code>, <code>try_preempt_current()</code>, <code>thread_unblock()</code></blockquote>
+<blockquote>- ?듭떖 援ъ“泥? <code>ready_list</code></blockquote>
+<blockquote>- 吏꾩쭨 ?댄빐?댁빞 ?섎뒗 ?ъ씤?? ?쎌엯???뚮쭏???뺣젹, 爰쇰궪 ?뚮뒗 洹몃깷 pop_front</blockquote></p><p><hr></p><p><h3>湲곕뒫 3: Priority Donation</h3></p><p><h4>1) ??湲곕뒫???섎뒗 ????? priority ?ㅻ젅?쒓? lock???↔퀬 ?덇퀬, ?믪? priority ?ㅻ젅?쒓? 洹?lock??湲곕떎由??? ??? 履쎌쓽 priority瑜??쇱떆?곸쑝濡??щ젮??priority inversion 臾몄젣瑜??닿껐?쒕떎.</h4></p><p><h4>2) ???꾩슂?쒖?</h4>
+Priority inversion: ?믪? priority ?ㅻ젅??H)媛 ??? priority ?ㅻ젅??L)???↔퀬 ?덈뒗 lock??湲곕떎由щ뒗?? 以묎컙 priority ?ㅻ젅??M)媛 L蹂대떎 癒쇱? ?ㅽ뻾?섎㈃ H???곸썝??湲곕떎由????덈떎. Donation?쇰줈 L??priority瑜?H留뚰겮 ?щ젮二쇰㈃ ?닿껐?쒕떎.</p><p><h4>3) ?섏젙???뚯씪</h4>
+- <code>include/threads/thread.h</code> ??donation 愿???꾨뱶
+- <code>threads/thread.c</code> ??<code>thread_recalculate_priority()</code>, <code>init_thread()</code>
+- <code>threads/synch.c</code> ??<code>lock_acquire()</code>, <code>lock_release()</code></p><p><h4>4) ?섏젙???⑥닔/援ъ“泥?</h4>
+<table><tr><th>?대쫫</th><th>??븷</th></tr><tr><td><code>thread.base_priority</code></td><td>?먮옒 ?ㅼ젙???곗꽑?쒖쐞 (donation怨?臾닿?)</td></tr><tr><td><code>thread.effective_priority</code></td><td>donation 諛섏쁺???ㅼ젣 ?곗꽑?쒖쐞</td></tr><tr><td><code>thread.wait_on_lock</code></td><td>???ㅻ젅?쒓? ?꾩옱 湲곕떎由ш퀬 ?덈뒗 lock</td></tr><tr><td><code>thread.donation_candidates</code></td><td>???ㅻ젅?쒖뿉寃?donation ?댁? ?ㅻ젅?쒕뱾??由ъ뒪??</td></tr><tr><td><code>thread.donation_elem</code></td><td>donation_candidates 由ъ뒪???곌껐???몃뱶</td></tr><tr><td><code>thread.in_donation_list</code></td><td>donation 由ъ뒪?몄뿉 ?깅줉?먮뒗吏 異붿쟻 ?뚮옒洹?</td></tr><tr><td><code>lock_acquire()</code></td><td>donation 泥댁씤 ?꾪뙆 (理쒕? depth 8)</td></tr><tr><td><code>lock_release()</code></td><td>?대떦 lock 湲곕떎由щ뜕 donor ?쒓굅 ??priority ?ш퀎??</td></tr><tr><td><code>thread_recalculate_priority()</code></td><td>max(base_priority, donations 理쒕?媛??쇰줈 priority 媛깆떊</td></tr></table></p><p><h4>5) ?ㅽ뻾 ?먮쫫</h4></p><p><pre><code class="">?ㅻ젅??H(priority=40)媛 lock_acquire(lockA) ?몄텧
+lockA???ㅻ젅??L(priority=20)??蹂댁쑀 以?
+  ??H-&gt;wait_on_lock = lockA
+  ??H瑜?L-&gt;donation_candidates??異붽?
+  ??泥댁씤 ?꾪뙆: L-&gt;effective_priority = max(L, H) = 40
+    ??L-&gt;priority = 40 (?ㅼ?以꾨윭媛 蹂대뒗 媛?
+    ??L?????ㅻⅨ lock??湲곕떎由ш퀬 ?덉쑝硫? 洹?lock??owner?먭쾶???꾪뙆 (depth &lt; 8)
+  ??sema_down() ??H??block</p><p>?섏쨷??L??lock_release(lockA)
+  ??donation_candidates?먯꽌 lockA 湲곕떎由щ뜕 ?ㅻ젅??H) ?쒓굅
+  ??thread_recalculate_priority(L) ??L-&gt;priority = base_priority(20)?쇰줈 蹂듦?
+  ??sema_up() ??H媛 unblock?섍퀬 ?ㅽ뻾
+</code></pre></p><p><h4>6) ?듭떖 ?먮즺援ъ“</h4></p><p><pre><code class="">struct thread {
+  int base_priority;           // ?먮옒 ?곗꽑?쒖쐞
+  int effective_priority;      // donation 諛섏쁺???곗꽑?쒖쐞
+  struct lock *wait_on_lock;   // 湲곕떎由щ뒗 lock
+  struct list donation_candidates;  // ?섏뿉寃?donate???ㅻ젅??由ъ뒪??  struct list_elem donation_elem;   // 由ъ뒪???곌껐??  bool in_donation_list;            // 以묐났 ?깅줉 諛⑹?
+};
+</code></pre></p><p><h4>7) 二쇱쓽????- Nested donation: A?묪?묬 泥댁씤. depth ?쒗븳 8</h4>
+- Multiple donation: ?щ윭 ?ㅻ젅?쒓? 媛숈? lock holder?먭쾶 ?숈떆??donate
+- lock_release?먯꽌 ?대떦 lock 愿??donor留??쒓굅?댁빞 ??(?ㅻⅨ lock??donor???좎?)</p><p><h4>8) ?꾩옱 援ы쁽 ?곹깭: ???꾨즺</h4></p><p>**愿???뚯뒪??*: <code>priority-donate-one</code>, <code>priority-donate-multiple</code>, <code>priority-donate-multiple2</code>, <code>priority-donate-nest</code>, <code>priority-donate-chain</code>, <code>priority-donate-sema</code>, <code>priority-donate-lower</code></p><p><blockquote>- ??以??붿빟: lock holder?먭쾶 waiter??priority瑜?鍮뚮젮以섏꽌 priority inversion 諛⑹?</blockquote>
+<blockquote>- ?듭떖 ?⑥닔: <code>lock_acquire()</code>, <code>lock_release()</code>, <code>thread_recalculate_priority()</code></blockquote>
+<blockquote>- ?듭떖 援ъ“泥? <code>donation_candidates</code>, <code>wait_on_lock</code></blockquote>
+<blockquote>- 吏꾩쭨 ?댄빐?댁빞 ?섎뒗 ?ъ씤?? 泥댁씤 ?꾪뙆? lock蹂?donor 愿由?</blockquote>
+<hr></p><p><h3>湲곕뒫 4: Argument Passing</h3></p><p><h4>1) ??湲곕뒫???섎뒗 ??<code>"echo hello world"</code> 媛숈? 而ㅻ㎤?쒕씪??臾몄옄?댁쓣 ?뚯떛?댁꽌, ?좎? ?꾨줈洹몃옩 ?쒖옉 ??main(argc, argv) ?뺥깭濡??꾨떖?쒕떎.</h4></p><p><h4>2) ???꾩슂?쒖?</h4>
+?좎? ?꾨줈洹몃옩? main(int argc, char **argv)濡??몄옄瑜?諛쏅뒗?? OS媛 ???몄옄?ㅼ쓣 ?좎? ?ㅽ깮??x86-64 ABI 洹쒖빟??留욊쾶 諛곗튂?댁쨾???꾨줈洹몃옩???뺤긽 ?숈옉?쒕떎.</p><p><h4>3) ?섏젙???뚯씪</h4>
+- <code>userprog/process.c</code> ???듭떖 援ы쁽</p><p><h4>4) ?섏젙???⑥닔</h4></p><p><table><tr><th>?⑥닔</th><th>??븷</th></tr><tr><td><code>parse_command_line_args()</code></td><td>strtok_r濡?怨듬갚 湲곗? ?좏겙 遺꾨━ ??argv[] 諛곗뿴 援ъ꽦</td></tr><tr><td><code>finalize_parsed_args()</code></td><td>argc > 0, argv[0] != NULL 理쒖쥌 ?뺤씤</td></tr><tr><td><code>build_user_stack_args()</code></td><td>?좎? ?ㅽ깮??臾몄옄?? argv ?ъ씤?? NULL ?쇳떚?? fake return address 諛곗튂</td></tr><tr><td><code>set_user_entry_registers()</code></td><td>intr_frame??rdi = argc, rsi = argv 二쇱냼 ?ㅼ젙</td></tr><tr><td><code>validate_user_entry_frame()</code></td><td>rsp, rdi, rsi媛 ?좏슚???좎? 二쇱냼?몄? 理쒖쥌 ?먭?</td></tr></table></p><p><h4>5) ?ㅽ뻾 ?먮쫫</h4></p><p><pre><code class="">process_exec("echo hello world")
+  ??strlcpy濡?cmd_line 蹂듭궗
+  ??parse_command_line_args(cmd_line, &amp;argc, argv)
+    ??"echo", "hello", "world" 遺꾨━ ??argc=3
+  ??finalize_parsed_args(3, argv) ??OK
+  ??load(argv[0]="echo", &amp;_if) ??ELF 濡쒕뱶, ?ㅽ깮 留ㅽ븨
+  ??build_user_stack_args(&amp;_if, 3, argv, &amp;argv_user_addr)
+    ?좎? ?ㅽ깮 諛곗튂 (?꾨옒媛 ??? 二쇱냼):
+    ?뚢???????????????????????USER_STACK (?믪? 二쇱냼)
+    ??"world\0"           ??    ??"hello\0"           ??    ??"echo\0"            ??    ??(padding: 8諛붿씠???뺣젹) ??    ??NULL (argv[3])      ??    ??argv[2] 二쇱냼        ??    ??argv[1] 二쇱냼        ??    ??argv[0] 二쇱냼        ????argv_user_addr
+    ??fake return (NULL)  ????rsp
+    ?붴???????????????????????  ??set_user_entry_registers: rdi=3, rsi=argv_user_addr
+  ??validate_user_entry_frame: 理쒖쥌 寃利?  ??do_iret(&amp;_if) ???좎? 紐⑤뱶 吏꾩엯!
+</code></pre></p><p><h4>6) ?듭떖 ?먮즺援ъ“</h4>
+- <code>argv[]</code>: palloc_get_page濡??좊떦???꾩떆 諛곗뿴. 而ㅻ꼸 痢??ъ씤?곕뱾
+- <code>arg_addrs[]</code>: build_user_stack_args ?대??먯꽌 ?곕뒗 ?좎? 痢?二쇱냼 諛곗뿴</p><p><h4>7) 二쇱쓽????- 8諛붿씠???뺣젹 ?꾩닔 (x86-64 ABI)</h4>
+- ?ㅽ깮 ?ㅻ쾭?뚮줈??泥댄겕 (USER_STACK - PGSIZE ?댄븯濡??대젮媛硫??ㅽ뙣)
+- 臾몄옄?댁? ??닚(argc-1遺??0源뚯?)?쇰줈 push
+- palloc ?섏씠吏??諛섎뱶???댁젣</p><p><h4>8) ?꾩옱 援ы쁽 ?곹깭: ???꾨즺</h4></p><p>**愿???뚯뒪??*: <code>args-none</code>, <code>args-single</code>, <code>args-multiple</code>, <code>args-many</code>, <code>args-dbl-space</code></p><p><blockquote>- ??以??붿빟: 而ㅻ㎤?쒕씪?몄쓣 ?뚯떛?댁꽌 x86-64 ABI??留욊쾶 ?좎? ?ㅽ깮??諛곗튂</blockquote>
+<blockquote>- ?듭떖 ?⑥닔: <code>parse_command_line_args()</code>, <code>build_user_stack_args()</code></blockquote>
+<blockquote>- ?듭떖 援ъ“泥? argv 諛곗뿴, intr_frame (rdi, rsi, rsp)</blockquote>
+<blockquote>- 吏꾩쭨 ?댄빐?댁빞 ?섎뒗 ?ъ씤?? ?ㅽ깮???꾩뿉???꾨옒濡??먮씪硫? ?뺣젹怨??쒖꽌媛 ?뺥솗?댁빞 ??</blockquote></p><p><hr></p><p><h3>湲곕뒫 5: System Call ?명봽??+ User Memory Validation</h3></p><p><h4>1) ??湲곕뒫???섎뒗 ???좎? ?꾨줈洹몃옩??<code>syscall</code> 紐낅졊?대? ?ㅽ뻾?섎㈃, CPU媛 而ㅻ꼸 紐⑤뱶濡??꾪솚?섍퀬 <code>syscall_handler()</code>媛 ?몄텧?쒕떎. ?ш린??syscall 踰덊샇瑜??쎄퀬, ?몄옄瑜?異붿텧?섍퀬, ?대떦 ?⑥닔瑜??ㅽ뻾???? 寃곌낵瑜??좎??먭쾶 ?뚮젮以??</h4></p><p><h4>2) ???꾩슂?쒖?</h4>
+?좎? ?꾨줈洹몃옩? 吏곸젒 ?섎뱶?⑥뼱???뚯씪?쒖뒪?쒖뿉 ?묎렐?????녿떎. 而ㅻ꼸???듯빐?쒕쭔 媛?ν븯?? ?쒖뒪?쒖퐳??洹?"李쎄뎄" ??븷???쒕떎.</p><p><h4>3) ?섏젙???뚯씪</h4>
+- <code>userprog/syscall.c</code> ???꾩껜 援ы쁽</p><p><h4>4) ?섏젙???⑥닔</h4></p><p><strong>?좎? 硫붾え由?寃利??⑥닔??</strong></p><p><table><tr><th>?⑥닔</th><th>??븷</th></tr><tr><td><code>is_valid_user_ptr(uaddr)</code></td><td>NULL, 而ㅻ꼸 二쇱냼, 留ㅽ븨 ????二쇱냼 泥댄겕. bool 諛섑솚</td></tr><tr><td><code>validate_user_ptr(uaddr)</code></td><td>is_valid_user_ptr ?ㅽ뙣 ??exit(-1)</td></tr><tr><td><code>validate_user_buffer(buffer, size)</code></td><td>踰꾪띁 ?쒖옉~?? 紐⑤뱺 ?섏씠吏 寃쎄퀎 寃利?</td></tr><tr><td><code>validate_user_string(str)</code></td><td>臾몄옄?댁쓽 媛?諛붿씠?멸? ?좏슚?쒖? NUL源뚯? 寃利?</td></tr><tr><td><code>fail_invalid_user_memory()</code></td><td>怨듯넻 ?ㅽ뙣 寃쎈줈. sys_exit(-1) ?몄텧</td></tr></table></p><p><strong>syscall_handler ?붿뒪?⑥튂:</strong></p><p><pre><code class="c">void syscall_handler(struct intr_frame *f) {
+    int sys_call = f-&gt;R.rax;  // syscall 踰덊샇
+    switch (sys_call) {
+        case SYS_WRITE: ... f-&gt;R.rdi, f-&gt;R.rsi, f-&gt;R.rdx ...
+        case SYS_OPEN:  ... f-&gt;R.rdi ...
+        // ... 珥?15媛?case
+        default: sys_exit(-1);
+    }
+}
+</code></pre></p><p><strong>?덉??ㅽ꽣 ???몄옄 留ㅽ븨 (x86-64 洹쒖빟):</strong></p><p><table><tr><th>?덉??ㅽ꽣</th><th>?⑸룄</th></tr><tr><td><code>rax</code></td><td>syscall 踰덊샇 (?낅젰) / 諛섑솚媛?(異쒕젰)</td></tr><tr><td><code>rdi</code></td><td>泥?踰덉㎏ ?몄옄</td></tr><tr><td><code>rsi</code></td><td>??踰덉㎏ ?몄옄</td></tr><tr><td><code>rdx</code></td><td>??踰덉㎏ ?몄옄</td></tr></table></p><p><h4>5) ?ㅽ뻾 ?먮쫫</h4></p><p><pre><code class="">?좎? ?꾨줈洹몃옩: write(1, "hello", 5)
+  ???쇱씠釉뚮윭由ш? rax=SYS_WRITE, rdi=1, rsi="hello", rdx=5 ?명똿
+  ??syscall 紐낅졊???ㅽ뻾
+  ??CPU媛 MSR_LSTAR???깅줉??syscall_entry濡??먰봽
+  ??而ㅻ꼸 ?ㅽ깮?쇰줈 ?꾪솚, intr_frame 援ъ꽦
+  ??syscall_handler(f) ?몄텧
+    ??f-&gt;R.rax == SYS_WRITE (10)
+    ??sys_write(1, "hello", 5) ?몄텧
+    ??validate_user_buffer("hello", 5) ???좏슚??寃利?    ??fd==1?대?濡?putbuf("hello", 5) ???곕???異쒕젰
+    ??return 5
+  ??f-&gt;R.rax = 5 (諛섑솚媛????
+  ???좎? 紐⑤뱶濡?蹂듦?
+</code></pre></p><p><h4>6) ?듭떖 ?먮즺援ъ“</h4>
+- <code>struct intr_frame</code> ??CPU ?덉??ㅽ꽣 ?곹깭瑜??대뒗 援ъ“泥? syscall 吏꾩엯/蹂듦? ???ъ슜
+- <code>filesys_lock</code> ???뚯씪 ?쒖뒪???숈떆 ?묎렐 諛⑹????꾩뿭 lock</p><p><h4>7) 二쇱쓽????- ?좎?媛 ?섍릿 ?ъ씤?곕? **諛섎뱶??* 寃利앺빐???쒕떎. ???섎㈃ 而ㅻ꼸 ?⑤땳</h4>
+- 寃利??ㅽ뙣 ??exit(-1)濡??꾨줈?몄뒪 醫낅즺. 而ㅻ꼸? ?덈? 二쎌쑝硫?????- filesys_lock?쇰줈 ?뚯씪 愿??syscall? 吏곷젹??
+<h4>8) ?꾩옱 援ы쁽 ?곹깭: ???꾨즺</h4></p><p><blockquote>- ??以??붿빟: ?좎???syscall ?붿껌???덉쟾?섍쾶 而ㅻ꼸?먯꽌 泥섎━?섎뒗 愿臾?> - ?듭떖 ?⑥닔: <code>syscall_handler()</code>, <code>validate_user_*()</code> ?쒕━利?> - ?듭떖 援ъ“泥? <code>intr_frame</code>, <code>filesys_lock</code></blockquote>
+<blockquote>- 吏꾩쭨 ?댄빐?댁빞 ?섎뒗 ?ъ씤?? ?좎? ?ъ씤??寃利앹씠 蹂댁븞???듭떖</blockquote></p><p><hr></p><p><h3>湲곕뒫 6: File Descriptor Table + File Syscalls</h3></p><p><h4>1) ??湲곕뒫???섎뒗 ??open, close, read, write, create, remove, seek, tell, filesize ???뚯씪 愿???쒖뒪?쒖퐳 9媛쒕? 援ы쁽?쒕떎. 媛??꾨줈?몄뒪???먭린留뚯쓽 fd_table??媛吏怨? ?뚯씪???대㈃ fd(?뺤닔)瑜??뚮젮諛쏆븘 ?댄썑 read/write???ъ슜?쒕떎.</h4></p><p><h4>2) ???꾩슂?쒖?</h4>
+?좎? ?꾨줈洹몃옩???뚯씪???ㅻ（?ㅻ㈃ ?뚯씪 ?붿뒪?щ┰?곕씪??異붿긽?붽? ?꾩슂?섎떎. fd 0=stdin, fd 1=stdout, fd 2遺???쇰컲 ?뚯씪.</p><p><h4>3) ?섏젙???뚯씪</h4>
+- <code>include/threads/thread.h</code> ??fd_table, next_fd ?꾨뱶
+- <code>threads/thread.c</code> ??init_thread()?먯꽌 珥덇린??- <code>userprog/syscall.c</code> ??9媛??⑥닔 援ы쁽</p><p><h4>4) ?섏젙???⑥닔/援ъ“泥?</h4>
+<pre><code class="c">struct thread {
+    struct file *fd_table[ARG_MAX];  // fd ??struct file* 留ㅽ븨. 128媛??щ’
+    int next_fd;                      // ?ㅼ쓬 ?좊떦??fd ?뚰듃
+};
+</code></pre></p><p><table><tr><th>?⑥닔</th><th>??븷</th></tr><tr><td><code>fd_alloc(file)</code></td><td>fd_table?먯꽌 鍮??щ’(fd>=2) 李얠븘 file ?깅줉, fd 諛섑솚</td></tr><tr><td><code>find_file_by_fd(fd)</code></td><td>fd濡?struct file* 議고쉶</td></tr><tr><td><code>sys_open(file_name)</code></td><td>filesys_open ??fd_alloc ??fd 諛섑솚</td></tr><tr><td><code>sys_close(fd)</code></td><td>file_close ??fd_table[fd] = NULL</td></tr><tr><td><code>sys_read(fd, buf, size)</code></td><td>fd==0: input_getc, fd>=2: file_read</td></tr><tr><td><code>sys_write(fd, buf, size)</code></td><td>fd==1: putbuf, fd>=2: file_write</td></tr><tr><td><code>sys_create(file, size)</code></td><td>filesys_create</td></tr><tr><td><code>sys_remove(file)</code></td><td>filesys_remove</td></tr><tr><td><code>sys_filesize(fd)</code></td><td>file_length</td></tr><tr><td><code>sys_seek(fd, pos)</code></td><td>file_seek</td></tr><tr><td><code>sys_tell(fd)</code></td><td>file_tell</td></tr></table></p><p><h4>5) ?ㅽ뻾 ?먮쫫 (open ??write ??close)</h4></p><p><pre><code class="">sys_open("test.txt")
+  ??validate ptr, string
+  ??filesys_lock ?↔린
+  ??filesys_open("test.txt") ??struct file* 諛섑솚
+  ??filesys_lock ?댁젣
+  ??fd_alloc(file) ??fd_table[2] = file ??return 2</p><p>sys_write(2, "data", 4)
+  ??validate_user_buffer("data", 4)
+  ??find_file_by_fd(2) ??file
+  ??filesys_lock ?↔린
+  ??file_write(file, "data", 4)
+  ??filesys_lock ?댁젣
+  ??return 4</p><p>sys_close(2)
+  ??find_file_by_fd(2) ??file
+  ??filesys_lock ?↔린
+  ??file_close(file)
+  ??filesys_lock ?댁젣
+  ??fd_table[2] = NULL
+</code></pre></p><p><h4>7) 二쇱쓽????- fd 0, 1? stdin/stdout. ?リ굅???쇰컲 ?뚯씪濡??곕㈃ ????- open ?ㅽ뙣 ??file_close ?몄텧 ?꾩슂 (由ъ냼???꾩닔 諛⑹?)</h4>
+- 紐⑤뱺 ?뚯씪 ?곗궛? filesys_lock?쇰줈 蹂댄샇</p><p><h4>8) ?꾩옱 援ы쁽 ?곹깭: ???꾨즺</h4></p><p>**愿???뚯뒪??*: <code>open-normal</code>, <code>open-missing</code>, <code>open-empty</code>, <code>close-normal</code>, <code>close-twice</code>, <code>read-normal</code>, <code>read-zero</code>, <code>write-normal</code>, <code>write-zero</code>, <code>create-normal</code>, <code>create-empty</code>, <code>create-long</code>, <code>remove-open</code></p><p><blockquote>- ??以??붿빟: ?꾨줈?몄뒪蹂?fd_table濡??뚯씪 ?붿뒪?щ┰??愿由? 9媛??뚯씪 syscall 援ы쁽</blockquote>
+<blockquote>- ?듭떖 ?⑥닔: <code>fd_alloc()</code>, <code>find_file_by_fd()</code>, <code>sys_open()</code>, <code>sys_write()</code>, <code>sys_read()</code></blockquote>
+<blockquote>- ?듭떖 援ъ“泥? <code>thread.fd_table[128]</code>, <code>filesys_lock</code></blockquote>
+<blockquote>- 吏꾩쭨 ?댄빐?댁빞 ?섎뒗 ?ъ씤?? fd 0/1 ?뱀닔 泥섎━, filesys_lock?쇰줈 吏곷젹??</blockquote>
+<hr></p><p><h3>湲곕뒫 7: Process Wait / Exit</h3></p><p><h4>1) ??湲곕뒫???섎뒗 ??遺紐??꾨줈?몄뒪媛 ?먯떇??醫낅즺瑜?湲곕떎由ш퀬(wait), ?먯떇??醫낅즺????exit) 醫낅즺 ?곹깭瑜?遺紐⑥뿉寃??꾨떖?쒕떎.</h4></p><p><h4>2) ???꾩슂?쒖?</h4>
+遺紐④? ?먯떇???앸궇 ?뚭퉴吏 湲곕떎?ㅼ빞 ?섎뒗 ?곹솴??留롫떎. ?먯떇???뺤긽 醫낅즺?덈뒗吏, ?먮윭濡?二쎌뿀?붿????뚯븘???쒕떎.</p><p><h4>3) ?섏젙???뚯씪</h4>
+- <code>include/threads/thread.h</code> ??<code>struct child_status</code>, <code>thread.children</code>, <code>thread.my_status</code>, <code>thread.exit_status</code>
+- <code>userprog/process.c</code> ??<code>process_wait()</code>, <code>process_exit()</code>, <code>child_status_create()</code>, <code>child_status_release()</code>
+- <code>userprog/syscall.c</code> ??<code>sys_exit()</code></p><p><h4>4) ?듭떖 援ъ“泥? child_status</h4></p><p><pre><code class="c">struct child_status {
+    tid_t tid;                    // ?먯떇??tid
+    int exit_status;              // ?먯떇??醫낅즺 肄붾뱶
+    bool waited;                  // 遺紐④? ?대? wait ?덈뒗吏
+    bool exited;                  // ?먯떇???대? 醫낅즺?덈뒗吏
+    bool fork_success;            // fork ?깃났 ?щ?
+    struct semaphore fork_sema;   // fork ?숆린?붿슜
+    struct semaphore wait_sema;   // wait ?숆린?붿슜
+    int ref_count;                // 李몄“ 移댁슫??(遺紐??먯떇 = 2)
+    struct lock ref_lock;         // ref_count 蹂댄샇??lock
+    struct list_elem elem;        // 遺紐⑥쓽 children 由ъ뒪???곌껐??};
+</code></pre></p><p><strong>??child_status媛 蹂꾨룄 援ъ“泥댁씤媛?</strong>
+- ?먯떇 thread媛 癒쇱? 二쎌쓣 ???덈떎. 洹몃윭硫?thread 援ъ“泥닿? ?щ씪吏꾨떎.
+- 洹몃옒??遺紐⑥? ?먯떇??怨듭쑀?섎뒗 蹂꾨룄 硫붾え由?child_status)??醫낅즺 ?뺣낫瑜???ν븳??
+- ref_count濡??꾧? 留덉?留됱쑝濡??곕뒗吏 異붿쟻?섍퀬, ?????앸굹硫?硫붾え由??댁젣.</p><p><h4>5) ?ㅽ뻾 ?먮쫫</h4></p><p><strong>sys_exit ?먮쫫:</strong>
+<pre><code class="">sys_exit(0)
+  ??curr-&gt;exit_status = 0
+  ??printf("?꾨줈?몄뒪?대쫫: exit(0)")
+  ??thread_exit()
+    ??process_exit()
+      ??close_running_file(curr)      // ?ㅽ뻾 以묒씤 ?뚯씪 ?リ린
+      ??curr-&gt;my_status-&gt;exit_status = 0
+      ??curr-&gt;my_status-&gt;exited = true
+      ??sema_up(&amp;my_status-&gt;wait_sema) // 遺紐④? 湲곕떎由ш퀬 ?덉쑝硫?源⑥슦湲?      ??child_status_release(my_status) // ref_count--
+      ???⑥? children??child_status??ref_count-- (怨좎븘 ?뺣━)
+      ??fd_table ?꾩껜 ?リ린
+      ??process_cleanup() // ?섏씠吏 ?뚯씠釉??댁젣
+    ??do_schedule(THREAD_DYING)
+</code></pre></p><p><strong>process_wait ?먮쫫:</strong>
+<pre><code class="">process_wait(child_tid)
+  ??children 由ъ뒪?몄뿉??tid ?쇱튂?섎뒗 child_status 李얘린
+  ???녾굅???대? waited硫?return -1
+  ??waited = true
+  ???먯떇???꾩쭅 ??二쎌뿀?쇰㈃? sema_down(&amp;wait_sema) ??釉붾줉
+  ??(?먯떇??exit?섎㈃ sema_up?쇰줈 源⑥썙以?
+  ??status = target-&gt;exit_status
+  ??list_remove ??child_status_release
+  ??return status
+</code></pre></p><p><h4>7) 二쇱쓽????- 媛숈? ?먯떇?????wait ??踰??몄텧?섎㈃ ??踰덉㎏??-1 諛섑솚 (waited ?뚮옒洹?</h4>
+- 遺紐④? 癒쇱? 二쎌쑝硫??먯떇??child_status ref_count媛 以꾩뼱?ㅺ퀬, ?먯떇??exit????理쒖쥌 ?댁젣
+- exit_status 湲곕낯媛믪? -1 (鍮꾩젙??醫낅즺)</p><p><h4>8) ?꾩옱 援ы쁽 ?곹깭: ???꾨즺</h4></p><p>**愿???뚯뒪??*: <code>wait-simple</code>, <code>wait-twice</code>, <code>wait-killed</code>, <code>wait-bad-pid</code>, <code>exit</code></p><p><blockquote>- ??以??붿빟: child_status 怨듭쑀 援ъ“泥?+ semaphore濡?遺紐??먯떇 醫낅즺 ?숆린??> - ?듭떖 ?⑥닔: <code>process_wait()</code>, <code>process_exit()</code>, <code>sys_exit()</code></blockquote>
+<blockquote>- ?듭떖 援ъ“泥? <code>struct child_status</code>, <code>thread.children</code>, <code>thread.my_status</code></blockquote>
+<blockquote>- 吏꾩쭨 ?댄빐?댁빞 ?섎뒗 ?ъ씤?? ref_count 湲곕컲 硫붾え由?愿由? ?꾧? 癒쇱? 二쎌뼱???덉쟾</blockquote></p><p><hr></p><p><h3>湲곕뒫 8: Fork</h3></p><p><h4>1) ??湲곕뒫???섎뒗 ???꾩옱 ?꾨줈?몄뒪???꾩쟾??蹂듭젣蹂몄쓣 留뚮뱺?? 遺紐⑤뒗 ?먯떇 tid瑜?諛섑솚諛쏄퀬, ?먯떇? 0??諛섑솚諛쏅뒗??</h4></p><p><h4>2) ???꾩슂?쒖?</h4>
+Unix ?쒖뒪?쒖쓽 ?듭떖 媛쒕뀗. ?꾨줈?몄뒪瑜?蹂듭젣?댁꽌 ?ㅻⅨ ?묒뾽???쒗궗 ???덈떎.</p><p><h4>3) ?섏젙???뚯씪</h4>
+- <code>userprog/process.c</code> ??<code>process_fork()</code>, <code>__do_fork()</code>, <code>duplicate_fd_table()</code>, <code>duplicate_running_file()</code>, <code>duplicate_pte()</code></p><p><h4>4) ?듭떖 援ъ“泥?</h4>
+<pre><code class="c">struct fork_args {
+    struct thread *parent;           // 遺紐??ㅻ젅???ъ씤??    struct child_status *child_status; // 怨듭쑀 ?곹깭
+    struct intr_frame parent_if;     // 遺紐⑥쓽 ?덉??ㅽ꽣 ?곹깭 蹂듭궗蹂?};
+</code></pre></p><p><h4>5) ?ㅽ뻾 ?먮쫫</h4></p><p><pre><code class="">(遺紐? process_fork("child", intr_frame)
+  ??child_status_create() ??怨듭쑀 ?곹깭 ?앹꽦 (ref_count=2)
+  ??fork_args ?좊떦, parent/child_status/parent_if ?명똿
+  ??children 由ъ뒪?몄뿉 child_status 異붽?
+  ??thread_create("child", PRI_DEFAULT, __do_fork, args)
+  ??sema_down(&amp;cs-&gt;fork_sema) ???먯떇??以鍮꾨맆 ?뚭퉴吏 ?湲?
+(?먯떇) __do_fork(args)
+  ??parent_if 蹂듭궗 ??if_.R.rax = 0 (?먯떇??諛섑솚媛?
+  ??current-&gt;my_status = cs
+  ??pml4_create() ?????섏씠吏 ?뚯씠釉?  ??pml4_for_each(parent-&gt;pml4, duplicate_pte, parent) ???섏씠吏 蹂듭궗
+  ??duplicate_fd_table(parent, current) ??fd_table 蹂듭궗 (file_duplicate)
+  ??duplicate_running_file(parent, current) ???ㅽ뻾 ?뚯씪 蹂듭궗
+  ??cs-&gt;fork_success = true
+  ??sema_up(&amp;cs-&gt;fork_sema) ??遺紐⑥뿉寃?"以鍮??꾨즺" ?뚮┝
+  ??do_iret(&amp;if_) ???좎? 紐⑤뱶 吏꾩엯</p><p>(遺紐?源⑥뼱??
+  ??fork_success ?뺤씤
+  ??return tid (?먯떇??tid)
+</code></pre></p><p><h4>7) 二쇱쓽????- 遺紐⑥쓽 intr_frame??fork_args??蹂듭궗?댁빞 ?쒕떎 (thread->tf???덈뒗 寃껋? 而ㅻ꼸 而⑦뀓?ㅽ듃)</h4>
+- fd_table 蹂듭궗 ??file_duplicate ?ъ슜 (媛숈? ?뚯씪???낅┰??蹂듭궗蹂?
+- fork ?ㅽ뙣 ??cs->fork_success = false ??遺紐④? TID_ERROR 諛섑솚</p><p><h4>8) ?꾩옱 援ы쁽 ?곹깭: ???꾨즺</h4></p><p>**愿???뚯뒪??*: <code>fork-once</code>, <code>fork-multiple</code>, <code>fork-recursive</code>, <code>fork-read</code>, <code>fork-close</code>, <code>fork-boundary</code></p><p><blockquote>- ??以??붿빟: ?섏씠吏 ?뚯씠釉? fd_table, ?덉??ㅽ꽣 ?곹깭瑜?紐⑤몢 蹂듭궗?댁꽌 ?먯떇 ?꾨줈?몄뒪 ?앹꽦</blockquote>
+<blockquote>- ?듭떖 ?⑥닔: <code>process_fork()</code>, <code>__do_fork()</code>, <code>duplicate_pte()</code>, <code>duplicate_fd_table()</code></blockquote>
+<blockquote>- ?듭떖 援ъ“泥? <code>struct fork_args</code>, <code>struct child_status</code></blockquote>
+<blockquote>- 吏꾩쭨 ?댄빐?댁빞 ?섎뒗 ?ъ씤?? ?먯떇? rax=0, 遺紐⑤뒗 rax=tid. fork_sema濡??숆린??</blockquote>
+<hr></p><p><h3>湲곕뒫 9: Exec</h3></p><p><h4>1) ??湲곕뒫???섎뒗 ???꾩옱 ?꾨줈?몄뒪???꾨줈洹몃옩???덈줈???꾨줈洹몃옩?쇰줈 援먯껜?쒕떎. fork? ?щ━ ???꾨줈?몄뒪瑜?留뚮뱾吏 ?딄퀬, 湲곗〈 ?꾨줈?몄뒪??肄붾뱶/?곗씠?곕? 援먯껜?쒕떎.</h4></p><p><h4>2) ???꾩슂?쒖?</h4>
+fork濡?蹂듭젣????exec?쇰줈 ?ㅻⅨ ?꾨줈洹몃옩???ㅽ뻾?섎뒗 寃껋씠 Unix???쒖? ?⑦꽩?대떎.</p><p><h4>3) ?섏젙???뚯씪</h4>
+- <code>userprog/syscall.c</code> ??<code>sys_exec()</code>
+- <code>userprog/process.c</code> ??<code>process_exec()</code></p><p><h4>4) ?ㅽ뻾 ?먮쫫</h4></p><p><pre><code class="">sys_exec("ls -la")
+  ??validate_user_string("ls -la")
+  ??palloc_get_page ??copied_cmd??"ls -la" 蹂듭궗
+  ??process_exec(copied_cmd)
+    ???낅젰 寃利?(NULL, 湲몄씠, 怨듬갚留?
+    ??cmd_line 蹂듭궗 踰꾪띁 ?좊떦
+    ??parse_command_line_args ??argc=2, argv=["ls", "-la"]
+    ??finalize_parsed_args ??OK
+    ??close_running_file(?꾩옱) ??湲곗〈 ?ㅽ뻾 ?뚯씪 ?リ린
+    ??process_cleanup() ??湲곗〈 ?섏씠吏 ?뚯씠釉??댁젣
+    ??load("ls", &amp;_if) ????ELF 濡쒕뱶, ???섏씠吏 ?뚯씠釉?    ??build_user_stack_args ???좎? ?ㅽ깮 援ъ꽦
+    ??set_user_entry_registers ??rdi=argc, rsi=argv
+    ??validate_user_entry_frame ??理쒖쥌 寃利?    ??do_iret(&amp;_if) ?????꾨줈洹몃옩 ?쒖옉!
+    ??NOT_REACHED
+</code></pre></p><p><h4>7) 二쇱쓽????- exec? ?깃났?섎㈃ ?뚯븘?ㅼ? ?딅뒗??(NOT_REACHED)</h4>
+- ?ㅽ뙣?섎㈃ -1 諛섑솚. ?섏?留??대? cleanup???곹깭?대?濡??꾨줈?몄뒪媛 二쎈뒗??- ?좎?媛 ?섍릿 cmd_line 臾몄옄?댁쓣 而ㅻ꼸 ?섏씠吏??蹂듭궗?댁빞 ?쒕떎 (process_cleanup?쇰줈 ?좎? ?섏씠吏媛 ?щ씪吏誘濡?</p><p><h4>8) ?꾩옱 援ы쁽 ?곹깭: ???꾨즺</h4></p><p>**愿???뚯뒪??*: <code>exec-once</code>, <code>exec-multiple</code>, <code>exec-arg</code>, <code>exec-missing</code>, <code>exec-bad-ptr</code></p><p><blockquote>- ??以??붿빟: ?꾩옱 ?꾨줈?몄뒪???꾨줈洹몃옩?????꾨줈洹몃옩?쇰줈 援먯껜</blockquote>
+<blockquote>- ?듭떖 ?⑥닔: <code>sys_exec()</code>, <code>process_exec()</code></blockquote>
+<blockquote>- ?듭떖 援ъ“泥? <code>intr_frame</code></blockquote>
+<blockquote>- 吏꾩쭨 ?댄빐?댁빞 ?섎뒗 ?ъ씤?? cleanup ??load?대?濡?cmd_line??而ㅻ꼸??誘몃━ 蹂듭궗</blockquote></p><p><hr></p><p><h3>湲곕뒫 10: Deny Write to Running Executable</h3></p><p><h4>1) ??湲곕뒫???섎뒗 ???ㅽ뻾 以묒씤 ?꾨줈洹몃옩 ?뚯씪??????곌린瑜?李⑤떒?쒕떎.</h4></p><p><h4>2) ???꾩슂?쒖?</h4>
+?꾨줈洹몃옩???ㅽ뻾 以묒씤???꾧뎔媛 洹??뚯씪???섏젙?섎㈃ ?ш컖???ㅻ쪟媛 諛쒖깮?????덈떎.</p><p><h4>3) 援ы쁽 ?꾩튂</h4>
+- <code>process.c</code>??<code>load()</code> ??<code>file_deny_write(file)</code> ?몄텧 ??<code>thread->running_file = file</code>
+- <code>process.c</code>??<code>close_running_file()</code> ???꾨줈?몄뒪 醫낅즺 ?먮뒗 exec ??<code>file_close()</code>濡?write deny ?댁젣
+- <code>process_exit()</code>?먯꽌 <code>close_running_file(curr)</code> ?몄텧</p><p><h4>8) ?꾩옱 援ы쁽 ?곹깭: ???꾨즺</h4></p><p>**愿???뚯뒪??*: <code>rox-simple</code>, <code>rox-child</code>, <code>rox-multichild</code></p><p>
+<hr></p><p><h2>4. ?ㅼ씠?닿렇??</h2>
+<h3>A. ?꾩껜 援ъ“??</h3>
+<div class="mermaid">flowchart LR
+    subgraph UserSpace["?좎? 怨듦컙"]
+        UP["User Program\n(main, printf, open...)"]
+    end</p><p>    subgraph KernelEntry["而ㅻ꼸 吏꾩엯??]
+        SE["syscall_entry\n(?댁뀍釉붾━)"]
+        SH["syscall_handler()\n(syscall.c)"]
+    end</p><p>    subgraph SyscallFunctions["?쒖뒪?쒖퐳 ?⑥닔??]
+        direction TB
+        SF_FILE["?뚯씪 怨꾩뿴\nopen/close/read\nwrite/create/remove\nseek/tell/filesize"]
+        SF_PROC["?꾨줈?몄뒪 怨꾩뿴\nfork/exec/wait\nexit/halt"]
+    end</p><p>    subgraph ProcessLayer["?꾨줈?몄뒪 ?덉씠??]
+        PE["process_exec()"]
+        PF["process_fork()"]
+        PW["process_wait()"]
+        PX["process_exit()"]
+    end</p><p>    subgraph ThreadLayer["?ㅻ젅???ㅼ?以꾨윭"]
+        TC["thread_create()"]
+        TY["thread_yield()"]
+        TB2["thread_block()"]
+        TU["thread_unblock()"]
+        SCH["schedule()"]
+        RL["ready_list\n(priority ?뺣젹)"]
+    end</p><p>    subgraph SyncLayer["?숆린??]
+        SEM["semaphore\nsema_up/down"]
+        LCK["lock\nacquire/release"]
+        DON["priority\ndonation"]
+    end</p><p>    subgraph FileSystem["?뚯씪 ?쒖뒪??]
+        FS["filesys_open/create\nfilesys_remove"]
+        FL["file_read/write\nfile_seek/tell"]
+        FLK["filesys_lock"]
+    end</p><p>    subgraph Timer["??대㉧"]
+        TS["timer_sleep()"]
+        TI["timer_interrupt()"]
+        SL["sleep_list"]
+    end</p><p>    UP -->|"syscall 紐낅졊??| SE --> SH
+    SH --> SF_FILE & SF_PROC
+    SF_PROC --> PE & PF & PW & PX
+    SF_FILE -->|"filesys_lock"| FLK --> FS & FL
+    PE & PF --> TC
+    TC --> TU --> RL
+    TY --> RL
+    RL --> SCH
+    PW -->|"sema_down"| SEM
+    PX -->|"sema_up"| SEM
+    LCK --> SEM
+    LCK --> DON
+    TS --> SL
+    TI -->|"留?tick"| SL
+    SL -->|"?쒓컙 ?꾨떖"| TU</div></p><p><h3>B. ?⑥닔 ?몄텧 ?먮쫫??</h3>
+<h4>B-1. ?꾨줈?몄뒪 ?ㅽ뻾 ?먮쫫</h4></p><p><div class="mermaid">flowchart TD
+    PCI["process_create_initd(cmd)"] --> TC1["thread_create(prog, initd)"]
+    TC1 --> INITD["initd()"]
+    INITD --> PEXEC["process_exec(file_name)"]
+    PEXEC --> PARSE["parse_command_line_args()"]
+    PARSE --> FINAL["finalize_parsed_args()"]
+    FINAL --> LOAD["load(argv 0, &_if)\nELF ?뚯떛 + 硫붾え由?留ㅽ븨"]
+    LOAD --> BUILD["build_user_stack_args()\n?ㅽ깮???몄옄 諛곗튂"]
+    BUILD --> SETREG["set_user_entry_registers()\nrdi=argc, rsi=argv"]
+    SETREG --> VALIDATE["validate_user_entry_frame()"]
+    VALIDATE --> IRET["do_iret(&_if)\n?좎? 紐⑤뱶 吏꾩엯!"]</p><p>    style IRET fill:#4CAF50,color:white</div></p><p><h4>B-2. Syscall 泥섎━ ?먮쫫</h4></p><p><div class="mermaid">flowchart TD
+    USER["?좎?: write(1, buf, 5)"] --> ENTRY["syscall_entry\nCPU 紐⑤뱶 ?꾪솚"]
+    ENTRY --> HANDLER["syscall_handler(f)"]
+    HANDLER --> RAX{"f->R.rax\nsyscall 踰덊샇?"}
+    RAX -->|"SYS_WRITE=10"| WRITE["sys_write(fd, buf, size)"]
+    RAX -->|"SYS_OPEN=15"| OPEN["sys_open(name)"]
+    RAX -->|"SYS_EXIT=1"| EXIT["sys_exit(status)"]
+    RAX -->|"SYS_FORK=2"| FORK["process_fork()"]
+    RAX -->|"SYS_WAIT=3"| WAIT["process_wait()"]
+    RAX -->|"SYS_EXEC=4"| EXEC["sys_exec()"]
+    RAX -->|"湲고?"| OTHER["..."]
+    RAX -->|"default"| DEFT["sys_exit(-1)"]</p><p>    WRITE --> VAL["validate_user_buffer()"]
+    VAL --> FD{"fd == 1?"}
+    FD -->|"Yes"| PUTBUF["putbuf(buf, size)\n?곕???異쒕젰"]
+    FD -->|"No"| FINDFD["find_file_by_fd(fd)"]
+    FINDFD --> FWRITE["file_write()"]
+    PUTBUF & FWRITE --> RET["f->R.rax = 諛섑솚媛?]</p><p>    style USER fill:#2196F3,color:white
+    style RET fill:#4CAF50,color:white</div></p><p><h4>B-3. Wait / Exit ?먮쫫</h4></p><p><div class="mermaid">sequenceDiagram
+    participant P as 遺紐??꾨줈?몄뒪
+    participant CS as child_status
+    participant C as ?먯떇 ?꾨줈?몄뒪</p><p>    P->>CS: child_status_create() (ref=2)
+    P->>C: thread_create() ??fork/exec</p><p>    Note over P: process_wait(child_tid)
+    P->>CS: children?먯꽌 tid 李얘린
+    P->>CS: waited = true</p><p>    alt ?먯떇 ?꾩쭅 ?ㅽ뻾 以?        P->>CS: sema_down(wait_sema) ??釉붾줉
+        Note over C: ?먯떇 ?ㅽ뻾 以?..
+        C->>CS: exit_status = N, exited = true
+        C->>CS: sema_up(wait_sema)
+        CS->>P: 遺紐?源⑥뼱??    else ?먯떇 ?대? 醫낅즺
+        Note over P: sema_down ????    end</p><p>    P->>CS: status = exit_status
+    P->>CS: list_remove + child_status_release (ref--)
+    C->>CS: child_status_release (ref--)
+    Note over CS: ref==0?대㈃ palloc_free_page</div></p><p><h4>B-4. Timer Sleep ?먮쫫</h4></p><p><div class="mermaid">flowchart LR
+    subgraph ?몄텧["timer_sleep(100)"]
+        A1["?명꽣?쏀듃 OFF"] --> A2["wakeup_tick = now + 100"]
+        A2 --> A3["sleep_list???쎌엯\n(?ㅻ쫫李⑥닚 ?뺣젹)"]
+        A3 --> A4["thread_block()\nBLOCKED ?곹깭"]
+        A4 --> A5["?명꽣?쏀듃 蹂듭썝"]
+    end</p><p>    subgraph ?명꽣?쏀듃["timer_interrupt (留?tick)"]
+        B1["ticks++"] --> B2["thread_tick()"]
+        B2 --> B3{"sleep_list ??nwakeup <= ticks?"}
+        B3 -->|"Yes"| B4["pop + unblock\n+ try_preempt"]
+        B4 --> B3
+        B3 -->|"No"| B5["??]
+    end</p><p>    ?몄텧 -.->|"?쒓컙 寃쎄낵"| ?명꽣?쏀듃</div></p><p><h3>C. ?먮즺援ъ“ 愿怨꾨룄</h3></p><p><div class="mermaid">classDiagram
+    class thread {
+        tid_t tid
+        char name[16]
+        int priority
+        int base_priority
+        int effective_priority
+        int64_t wakeup_tick
+        lock* wait_on_lock
+        list donation_candidates
+        list_elem donation_elem
+        bool in_donation_list
+        uint64_t* pml4
+        file* fd_table[128]
+        int next_fd
+        list children
+        child_status* my_status
+        int exit_status
+        file* running_file
+        intr_frame tf
+    }</p><p>    class child_status {
+        tid_t tid
+        int exit_status
+        bool waited
+        bool exited
+        bool fork_success
+        semaphore fork_sema
+        semaphore wait_sema
+        int ref_count
+        lock ref_lock
+        list_elem elem
+    }</p><p>    class fork_args {
+        thread* parent
+        child_status* child_status
+        intr_frame parent_if
+    }</p><p>    class initd_args {
+        char* file_name
+        child_status* child_status
+    }</p><p>    class intr_frame {
+        R.rax: syscall踰덊샇/諛섑솚媛?        R.rdi: ?몄옄1
+        R.rsi: ?몄옄2
+        R.rdx: ?몄옄3
+        rsp: ?ㅽ깮?ъ씤??        rip: ?ㅼ쓬?ㅽ뻾二쇱냼
+    }</p><p>    thread "1" --> "*" child_status : children 由ъ뒪??    thread "1" --> "0..1" child_status : my_status ?ъ씤??    thread "1" --> "0..128" file : fd_table 諛곗뿴
+    thread "1" --> "0..1" lock : wait_on_lock
+    thread "1" --> "*" thread : donation_candidates
+    fork_args --> thread : parent
+    fork_args --> child_status : child_status
+    fork_args --> intr_frame : parent_if
+    initd_args --> child_status : child_status</div></p><p><h3>D. ?섏젙 吏??留?</h3>
+<div class="mermaid">flowchart TD
+    subgraph Repo["PintOS Repository"]
+        subgraph Headers["include/"]
+            TH["threads/thread.h\n?륅툘 struct thread ?뺤옣\n?륅툘 struct child_status 異붽?\n?륅툘 wakeup_tick, donation,\n   fd_table, children ??]
+            PH["userprog/process.h\n?륅툘 ARG_MAX ?뺤쓽"]
+        end</p><p>        subgraph Threads["threads/"]
+            TC2["thread.c\n?륅툘 init_thread 珥덇린??n?륅툘 priority ?뺣젹 ?쎌엯\n?륅툘 try_preempt_current\n?륅툘 recalculate_priority"]
+            SY["synch.c\n?륅툘 lock_acquire donation\n?륅툘 lock_release donation ?댁젣\n?륅툘 sema_up priority ?좏깮\n?륅툘 cond_signal priority ?좏깮"]
+        end</p><p>        subgraph Devices["devices/"]
+            TM["timer.c\n?륅툘 sleep_list 異붽?\n?륅툘 timer_sleep block 諛⑹떇\n?륅툘 timer_interrupt 源⑥슦湲?]
+        end</p><p>        subgraph Userprog["userprog/"]
+            SC["syscall.c\n?륅툘 15媛?syscall 援ы쁽\n?륅툘 ?좎? 硫붾え由?寃利?n?륅툘 filesys_lock\n?륅툘 fd_alloc/find"]
+            PC["process.c\n?륅툘 argument passing\n?륅툘 process_exec ?꾩껜\n?륅툘 process_fork/wait/exit\n?륅툘 child_status 愿由?n?륅툘 fd_table/running_file 蹂듭젣\n?륅툘 load() deny_write"]
+        end
+    end</p><p>    TH -.-> TC2
+    TH -.-> SC
+    TH -.-> PC
+    TH -.-> TM
+    TH -.-> SY
+    PH -.-> PC</p><p>    style TH fill:#FF9800,color:white
+    style SC fill:#F44336,color:white
+    style PC fill:#F44336,color:white
+    style TC2 fill:#2196F3,color:white
+    style SY fill:#2196F3,color:white
+    style TM fill:#4CAF50,color:white</div></p><p><hr></p><p><h2>5. ?꾩껜 援ы쁽 ?붿빟</h2></p><p><h3>吏湲덇퉴吏 援ы쁽??寃?</h3>
+<table><tr><th>?꾨줈?앺듃</th><th>湲곕뒫</th><th>?곹깭</th></tr><tr><td>Project 1</td><td>Alarm Clock (timer_sleep)</td><td>??</td></tr><tr><td>Project 1</td><td>Priority Scheduling</td><td>??</td></tr><tr><td>Project 1</td><td>Priority Donation</td><td>??</td></tr><tr><td>Project 2</td><td>Argument Passing</td><td>??</td></tr><tr><td>Project 2</td><td>System Call ?명봽??</td><td>??</td></tr><tr><td>Project 2</td><td>File Syscalls (9媛?</td><td>??</td></tr><tr><td>Project 2</td><td>Process Lifecycle (fork/exec/wait/exit)</td><td>??</td></tr><tr><td>Project 2</td><td>User Memory Validation</td><td>??</td></tr><tr><td>Project 2</td><td>Deny Write to Executables</td><td>??</td></tr></table></p><p><h3>?꾩쭅 鍮꾩뼱 ?덈뒗 寃?</h3>
+<table><tr><th>湲곕뒫</th><th>?곹깭</th><th>鍮꾧퀬</th></tr><tr><td>MLFQS (Advanced Scheduler)</td><td>??</td><td><code>thread_set_nice</code>, <code>thread_get_nice</code>, <code>thread_get_load_avg</code>, <code>thread_get_recent_cpu</code> 紐⑤몢 TODO</td></tr><tr><td>Virtual Memory (Project 3)</td><td>??</td><td><code>lazy_load_segment</code>, VM??<code>setup_stack</code> 誘멸뎄??</td></tr></table></p><p><h3>?뚯뒪???곌껐 ?뺣━</h3></p><p><table><tr><th>?뚯뒪???대쫫</th><th>?곌껐 湲곕뒫</th></tr><tr><td><code>alarm-single/multiple/simultaneous/zero/negative</code></td><td>Alarm Sleep</td></tr><tr><td><code>alarm-priority</code></td><td>Alarm Sleep + Priority</td></tr><tr><td><code>priority-change/preempt/fifo</code></td><td>Priority Scheduling</td></tr><tr><td><code>priority-sema/condvar</code></td><td>Priority + Sync</td></tr><tr><td><code>priority-donate-one/multiple/multiple2/nest/chain/sema/lower</code></td><td>Priority Donation</td></tr><tr><td><code>args-none/single/multiple/many/dbl-space</code></td><td>Argument Passing</td></tr><tr><td><code>halt</code></td><td>sys_halt</td></tr><tr><td><code>exit</code></td><td>sys_exit</td></tr><tr><td><code>create-normal/empty/long/exists/bound</code></td><td>sys_create</td></tr><tr><td><code>open-normal/missing/empty/null/twice</code></td><td>sys_open</td></tr><tr><td><code>close-normal/twice/bad-fd</code></td><td>sys_close</td></tr><tr><td><code>read-normal/zero/bad-fd/stdout</code></td><td>sys_read</td></tr><tr><td><code>write-normal/zero/bad-fd/stdin</code></td><td>sys_write</td></tr><tr><td><code>fork-once/multiple/recursive/read/close/boundary</code></td><td>fork</td></tr><tr><td><code>exec-once/multiple/arg/missing/bad-ptr</code></td><td>exec</td></tr><tr><td><code>wait-simple/twice/killed/bad-pid</code></td><td>wait</td></tr><tr><td><code>rox-simple/child/multichild</code></td><td>Deny Write</td></tr><tr><td><code>bad-read/write/jump</code></td><td>User Memory Validation</td></tr><tr><td><code>sc-bad-sp/bad-arg</code></td><td>Syscall Validation</td></tr><tr><td><code>multi-oom</code></td><td>醫낇빀 (fork+exec+wait+memory)</td></tr></table></p><p><h3>諛쒗몴????留먰븯硫?醫뗭? ?듭떖 ?ъ씤??</h3>
+1. <strong>Alarm Clock</strong>: busy-wait瑜??놁븷怨?sleep_list + block/unblock?쇰줈 CPU ?⑥쑉??2. <strong>Priority Scheduling</strong>: ready_list瑜???긽 priority ?뺣젹 ?좎?, ?쎌엯 ???뺣젹 + ?좎젏 ?먮떒
+3. <strong>Priority Donation</strong>: nested(泥댁씤) + multiple(?ㅼ쨷) donation 紐⑤몢 吏?? depth ?쒗븳 8
+4. <strong>Argument Passing</strong>: x86-64 ABI 洹쒖빟??留욊쾶 ?좎? ?ㅽ깮??argc/argv 諛곗튂
+5. <strong>Syscall 蹂댁븞</strong>: ?좎? ?ъ씤?곕? 3以?寃利?NULL/而ㅻ꼸二쇱냼/留ㅽ븨?щ?). ?ㅽ뙣 ??exit(-1)
+6. <strong>child_status ?ㅺ퀎</strong>: 遺紐??먯떇 ?대뒓 履쎌씠 癒쇱? 二쎌뼱???덉쟾??ref_count 湲곕컲 怨듭쑀 援ъ“泥?7. <strong>Fork</strong>: ?섏씠吏 ?뚯씠釉? fd_table, ?덉??ㅽ꽣 ?곹깭瑜??꾩쟾??蹂듭젣. fork_sema濡??숆린??8. <strong>filesys_lock</strong>: 紐⑤뱺 ?뚯씪 ?쒖뒪???묎렐??吏곷젹?뷀븯??race condition 諛⑹?</p><p><h3>肄붾뱶 由щ럭?먯꽌 吏덈Ц諛쏄린 ?ъ슫 遺遺?</h3>
+1. <strong>"fd_table??128媛쒕㈃ 異⑸텇?쒓??"</strong> ??PintOS ?뚯뒪??踰붿쐞?먯꽌??異⑸텇. ?ㅼ젣 OS???숈쟻 ?좊떦
+2. <strong>"filesys_lock ?섎굹濡?異⑸텇?쒓??"</strong> ???⑥닚?섏?留?蹂묐ぉ. ?ㅼ젣 OS??inode蹂?lock
+3. <strong>"fork?먯꽌 parent_if瑜???蹂듭궗?섎뒗媛?"</strong> ??thread->tf??而ㅻ꼸 而⑦뀓?ㅽ듃. ?좎? ?덉??ㅽ꽣 ?곹깭??syscall 吏꾩엯 ?쒖쓽 intr_frame???덉쓬
+4. <strong>"child_status??ref_count媛 ??2?멸??"</strong> ??遺紐?children 由ъ뒪?? + ?먯떇(my_status ?ъ씤??. ????李몄“ ?댁젣?댁빞 free
+5. <strong>"donation depth 8 ?쒗븳? ??"</strong> ??臾댄븳 泥댁씤 諛⑹?. PintOS ?뚯뒪?몃뒗 理쒕? 8?④퀎
+6. <strong>"process_exec?먯꽌 cleanup ??load ?ㅽ뙣?섎㈃?"</strong> ???대? ?섏씠吏 ?뚯씠釉??댁젣?? ?꾨줈?몄뒪 二쎌쓬. exec? ?뚯븘?????녿뒗 ?ㅻ━
+7. <strong>"validate_user_buffer?먯꽌 ?섏씠吏 寃쎄퀎 寃?щ뒗 ??"</strong> ??踰꾪띁媛 ???섏씠吏??嫄몄튌 ???덉쓬. 泥??섏씠吏留?留ㅽ븨?섏뼱 ?덉쑝硫?以묎컙??page fault</p><p></p>
+</body>
+</html>
