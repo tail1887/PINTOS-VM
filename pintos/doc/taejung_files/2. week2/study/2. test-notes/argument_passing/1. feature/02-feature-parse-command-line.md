@@ -55,6 +55,7 @@ flowchart LR
 
 #### 구현 주석 (보면 되는 함수)
 - 위치: `pintos/userprog/process.c`의 `process_exec()`
+- 주의: `process_exec()`의 `argv` 포인터 배열은 커널 스택 지역 배열보다 page 할당을 사용한다.
 
 ### 4.2 기능 B: 토큰화 규칙 고정
 #### 개념 설명
@@ -106,12 +107,17 @@ flowchart LR
 - 역할: 입력 유효성, 복사, 파서 호출
 - 규칙 1: NULL 입력 방어
 - 규칙 2: 빈 문자열/공백만 있는 입력 실패
+- 규칙 3: `argv[ARG_MAX]`는 큰 지역 배열로 두지 말고 `palloc_get_page()`로 할당한다.
+- 금지 1: command line page와 argv page 중 하나라도 실패 경로에서 누수하지 않는다.
+- 금지 2: `load()` 호출 전후의 깊은 호출 경로에 큰 지역 배열을 남겨 커널 스택을 압박하지 않는다.
 
 구현 체크 순서:
 1. `cmd_line` NULL 여부를 먼저 검사한다.
 2. `PGSIZE` 길이 초과와 공백만 있는 입력을 먼저 실패 처리한다.
 3. 쓰기 가능한 복사 버퍼를 할당/복사한다.
-4. 성공 경로에서만 토큰화 루프로 진입한다.
+4. argv 포인터 배열 page를 할당한다.
+5. 성공 경로에서만 토큰화 루프로 진입한다.
+6. 모든 실패 경로에서 command line page와 argv page를 함께 해제한다.
 
 ### 5.2 `parse_command_line_args()` 토큰화 루프
 - 위치: `pintos/userprog/process.c`
@@ -144,5 +150,7 @@ flowchart LR
 - `args-multiple`: 순서 보존
 - `args-many`: 다수 토큰 경계
 - `args-dbl-space`: 연속 공백 규칙
+- 회귀 확인: `wait-simple`, `write-normal`, `open-empty`처럼 exec/load 경로를 함께 타는 테스트도 같이 본다.
 
 실패 시 우선 `argc`와 토큰 문자열 배열 로그를 찍어 파싱 단계부터 확인합니다.
+`thread_current(): assertion is_thread(t) failed`가 `load()` 또는 `setup_stack()` 근처에서 발생하면 파싱 결과 자체보다 커널 스택 사용량도 함께 의심합니다.

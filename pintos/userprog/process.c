@@ -163,14 +163,20 @@ process_init (void) {
 
 
 bool parse_command_line_args(char *cmd_line, int *argc, char **argv){
+	
 	// strtok_r() 첫 호출로 시작 토큰을 가져온다.
 	char *save_ptr = NULL;
+
+	// strtok_r을 실행하고 나면 &save_ptr은 다음 토큰 시작 포인터로 갱신됨
 	char *token = strtok_r(cmd_line, " ", &save_ptr);
 	*argc = 0;
+
+	// 첫 토큰이 없으면 실행 실패처리한다.
 	if (token == NULL){
 		return false;
 	}
-	// 	토큰을 argv_temp[argc]에 저장한 뒤 argc를 증가시킨다.
+
+	// 토큰을 argv_temp[argc]에 저장하기 전에 최대 토큰 수 경계를 검사한다.
  	if(*argc >= ARG_MAX){
 		return false;
 	}
@@ -195,11 +201,11 @@ bool parse_command_line_args(char *cmd_line, int *argc, char **argv){
 }
 
 bool finalize_parsed_args(int argc, char **argv){
-	// 첫 토큰(실행 파일명) 존재 여부를 최종 확인한다.
+	// 첫 토큰을 확인하기 전에 배열의 주소가 유효한지 확인한다
 	if(argv == NULL){
 		return false;
 	}
-	
+	// 첫 토큰(실행 파일명) 존재 여부를 최종 확인한다.
 	if(argc <= 0 || argv[0] == NULL){
 		return false;
 	}
@@ -207,9 +213,10 @@ bool finalize_parsed_args(int argc, char **argv){
 	return true;
 }
 
-
 static bool build_user_stack_args(struct intr_frame *user_if, int argc, char **argv, uintptr_t *argv_user_addr){
+	// 스택 포인터
 	uintptr_t sp;
+
 	char **arg_addrs;
 	int i;
 	// 입력 검증
@@ -220,9 +227,9 @@ static bool build_user_stack_args(struct intr_frame *user_if, int argc, char **a
 	if (arg_addrs == NULL)
 		return false;
 
-	// 문자열을 역순으로 push하고 시작 주소를 arg_addrs[]에 기록한다.
+	// rsp에서 시작
 	sp = (uintptr_t) user_if->rsp;
-	
+	// 문자열을 역순으로 push한다
 	for(i = argc - 1; i >= 0; i--){
 		size_t len = strlen(argv[i]) + 1;
 		sp -= len;
@@ -285,10 +292,12 @@ bool set_user_entry_registers(struct intr_frame *user_if, int argc, uintptr_t ar
 	// 입력 검증하기
 	if(user_if == NULL || argc <= 0 || argv_user_addr == 0)
 		return false;
+	
 	//argv_user_addr가 사용자 가상 주소인지 점검한다.
 	if(!is_user_vaddr((void *) argv_user_addr)){
 		return false;
 	}
+	
 	// if_.R.rdi = argc를 먼저 설정한다.
 	user_if->R.rdi = argc;
 	// if_.R.rsi = argv_user_addr를 설정한다.
@@ -585,13 +594,15 @@ error:
 
 /* Switch the current execution context to the f_name.
  * Returns -1 on fail. */
+// 현재 프로세스를 새 사용자 프로그램으로 갈아끼우는 함수
 int
 process_exec (void *f_name) {
 	// 커맨드 라인 받기
+	// 여기서 원본 메모리가 팔록으로 할당된 버퍼라서 이후에 계속 할당 해제해줘야함
 	char *file_name = f_name;
 	bool success;
 	
-	// file_name NULL 여부를 먼저 검사한다.
+	// file_name이 유효한 포인터 주소인지 먼저 검사한다.
 	if (file_name == NULL){
 		return -1;
 	}
@@ -611,7 +622,7 @@ process_exec (void *f_name) {
 	// 기능 1: 커맨드라인 파싱 (토큰화) 
 	// process_exec() 파싱 시작부
 
-	// 쓰기 가능한 복사 버퍼를 할당한다.
+	// 쓰기 가능한 복사 버퍼를 할당한다. 
 	char *cmd_line = palloc_get_page (0);
 	if (cmd_line == NULL){
 		palloc_free_page (file_name);
@@ -621,15 +632,19 @@ process_exec (void *f_name) {
 	// 복사 버퍼에 복사한다.
 	strlcpy(cmd_line, file_name, PGSIZE);
 
-	// parse_command_line_args() 토큰화 루프
+	// parse_command_line_args() 토큰화 루프 진입전 변수할당
 	int argc = 0;
 	char **argv = palloc_get_page (0);
+
+	// 할당된 배열이 유효한지 확인
 	if (argv == NULL){
 		palloc_free_page (file_name);
 		palloc_free_page (cmd_line);
 		return -1;
 	}
 
+	// parse_command_line_args() 토큰화 루프 진입
+	// 공백기준으로 토큰을 추출한다
 	success = parse_command_line_args(cmd_line, &argc, argv);
 	if (!success){ 
 		palloc_free_page (file_name);
@@ -656,13 +671,45 @@ process_exec (void *f_name) {
 	_if.eflags = FLAG_IF | FLAG_MBS;
 
 	/* We first kill the current context */
+	// 현재 스레드의 running_file 포인터를 확인하고 해제한다.(사용중인 파일에 대한 쓰기 금지 해제)
 	close_running_file(thread_current());
+	// 유저용 데이터를 완전히 비워준다.(pm_14, PML4 (Page Map Level 4))
+	
+	/*1. PML4의 직관적 구조 (4단계 계층)
+	
+	- 64비트 가상 주소는 64개 비트를 다 쓰지 않고 하위 48비트만 사용하는데, 이를 9비트씩 4등분하여 각 단계의 인덱스로 활용한다.
+	
+	1단계: PML4 (Page Map Level 4)
+	
+	- 최상위 목차다. 512개의 엔트리를 가지며, 각 엔트리는 다음 단계인 PDPT의 주소를 가리킨다.
+	- CPU의 CR3 레지스터가 이 PML4의 시작 위치를 항상 기억하고 있다.
+
+	2단계: PDPT (Page Directory Pointer Table)
+
+	- PML4의 지시를 받아 다음 단계인 PD의 주소를 가리킨다.
+
+	3단계: PD (Page Directory)
+
+	- 다음 단계인 PT의 주소를 가리킨다.
+
+	4단계: PT (Page Table)
+
+	- 가장 하위 단계의 지도로, 여기서 드디어 실제 데이터가 저장된 물리 메모리(Frame)의 주소를 알려준다.
+
+	2. 왜 굳이 4단계나 나누는가?
+	
+	이 방식의 핵심은 "필요한 부분만 만든다"는 것이다.
+	- 메모리 절약: 유저 프로그램이 가상 주소 $2^{48}$바이트 전체를 다 쓰는 경우는 거의 없다. 사용하지 않는 주소 영역은 상위 단계(PML4나 PDPT)의 엔트리를 NULL로 비워두기만 하면 된다. 그 아래 단계의 표들은 아예 생성할 필요가 없으므로 메모리가 획기적으로 절약된다.
+	- 권한 관리: 각 단계의 엔트리마다 "이 영역은 읽기 전용인가?", "유저가 접근 가능한가?" 같은 권한 비트를 심어둘 수 있다. 하드웨어가 주소를 찾아 내려가다가 권한이 없는 층을 발견하면 즉시 차단(Segmentation Fault 등)한다.*/
+	
 	process_cleanup ();
 	
 	// TODO: Argument 분리해서 파일명만 load()로 넘기기 
-
 	// 기능 2: 사용자 스택 레이아웃 구성 부분 시작 (ABI 계약)
+
+	// build_user_stack_args()가 계산한 argv 주소를, 다음 단계인 set_user_entry_registers()에 전달하기 위한 중간 저장소
 	uintptr_t argv_user_addr = 0;
+	
 	// load() 기본 매핑
 	success = load(argv[0], &_if);
 	if (!success){
@@ -691,6 +738,7 @@ process_exec (void *f_name) {
 		palloc_free_page (argv);
 		return -1;
 	}
+
 	// validate_user_entry_frame() 유저 전환 직전 점검
 	success = validate_user_entry_frame(&_if);
 	if (!success){
@@ -699,6 +747,7 @@ process_exec (void *f_name) {
 		palloc_free_page (argv);
 		return -1;
 	}
+
 	// do_iret() 유저 진입
 	palloc_free_page (file_name);
 	palloc_free_page (cmd_line);

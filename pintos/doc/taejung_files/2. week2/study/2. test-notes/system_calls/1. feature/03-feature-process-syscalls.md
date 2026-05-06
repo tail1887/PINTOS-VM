@@ -290,14 +290,17 @@ flowchart TD
 - 규칙 1: command line 파싱은 기존 주소 공간을 파괴하기 전에 완료하거나, 필요한 문자열을 커널 메모리에 복사해 둔다.
 - 규칙 2: `process_cleanup()`으로 기존 pml4를 정리한 뒤 새 intr_frame과 `load()`를 준비한다.
 - 규칙 3: `load()` 실패 시 반환/종료 정책을 팀 계약에 맞춘다.
+- 규칙 4: `argv[ARG_MAX]`처럼 큰 임시 배열은 커널 스택에 두지 말고 page 할당으로 관리한다.
 - 금지 1: 기존 주소 공간을 정리한 뒤 사용자 포인터 원본에서 다시 문자열을 읽지 않는다.
+- 금지 2: `process_exec()` 호출 스택에 1KB 이상 큰 지역 배열을 여러 개 쌓아 둔 채 `load()`, `setup_stack()`, `palloc_get_page()` 경로로 들어가지 않는다.
 
 구현 체크 순서:
 1. 커널 버퍼의 command line을 파싱한다.
-2. 새 `struct intr_frame`을 초기화한다.
-3. 기존 process context를 cleanup한다.
-4. `load(argv[0], &_if)`를 호출한다.
-5. 실패 시 자원을 정리하고 `-1`을 반환한다.
+2. 파싱 결과 포인터 배열이 필요하면 `palloc_get_page()`로 별도 page를 할당한다.
+3. 새 `struct intr_frame`을 초기화한다.
+4. 기존 process context를 cleanup한다.
+5. `load(argv[0], &_if)`를 호출한다.
+6. 실패 시 할당한 page와 command line page를 정리하고 `-1`을 반환한다.
 
 #### 5.4.3 exec 성공 후 인자 스택과 진입 레지스터
 - 위치: `pintos/userprog/process.c`의 `build_user_stack_args()`, `set_user_entry_registers()`, `do_iret()` 호출 경로
@@ -305,13 +308,30 @@ flowchart TD
 - 규칙 1: argument passing 문서의 스택 정렬과 fake return address 규칙을 따른다.
 - 규칙 2: `RDI=argc`, `RSI=argv`를 설정한다.
 - 규칙 3: 성공 경로는 `do_iret(&_if)`로 사용자 모드에 진입하며 반환하지 않는다.
+- 규칙 4: `build_user_stack_args()` 내부의 주소 보관 배열도 page 할당으로 빼고 성공/실패 경로에서 반드시 해제한다.
 - 금지 1: exec 성공 후 커널 함수가 일반 return으로 빠져나오게 하지 않는다.
+- 금지 2: `arg_addrs[ARG_MAX]` 같은 큰 배열을 지역 변수로 두어 thread kernel stack을 압박하지 않는다.
 
 구현 체크 순서:
 1. `load()` 성공 후 사용자 스택에 argv 문자열과 포인터를 배치한다.
 2. entry register를 설정한다.
 3. `do_iret()` 직전에 임시 커널 버퍼를 해제한다.
 4. `exec-once`, `exec-arg`, `exec-missing`으로 확인한다.
+
+#### 5.4.4 커널 스택 사용량 주의와 실제 장애 패턴
+- 위치: `pintos/userprog/process.c`의 `process_exec()`, `build_user_stack_args()`
+- 역할: PintOS thread page 안에서 커널 스택과 `struct thread`가 같이 쓰이는 구조를 고려해 stack overflow를 피한다.
+- 규칙 1: `char *argv[ARG_MAX]`, `char *arg_addrs[ARG_MAX]`는 각각 포인터 128개라 약 1KB씩 사용한다.
+- 규칙 2: wait/fork/exec 구현이 추가되면 호출 깊이와 지역 변수 사용량이 늘어 기존에 통과하던 테스트에서도 `thread_current()` magic 손상이 드러날 수 있다.
+- 규칙 3: 이런 임시 포인터 배열은 `palloc_get_page(0)`로 할당하고 모든 실패 경로에서 `palloc_free_page()`로 해제한다.
+- 금지 1: `thread_current(): assertion is_thread(t) failed`를 단순히 wait 로직 오류로만 판단하지 않는다. load/setup_stack/palloc 콜스택이면 커널 스택 오버플로우도 함께 의심한다.
+
+구현 체크 순서:
+1. `process_exec()`에서 command line page와 argv page를 별도로 소유한다.
+2. `parse_command_line_args()`와 `build_user_stack_args()`에는 page에 있는 argv 포인터 배열을 넘긴다.
+3. `build_user_stack_args()`는 내부 주소 임시 배열을 page로 할당한다.
+4. 성공 경로와 실패 경로 모두에서 할당 page를 해제한다.
+5. Docker에서 `write-normal`, `open-empty`, `wait-simple`, `make check` 순서로 재검증한다.
 
 ### 5.5 `wait` syscall 및 `process_wait()`
 #### 5.5.1 `syscall_handler()`의 `SYS_WAIT` 분기
@@ -361,3 +381,4 @@ flowchart TD
 - `fork-once`, `fork-multiple`, `fork-recursive`: fork 동작 확인
 - `exec-once`, `exec-arg`, `exec-missing`: exec 성공/실패 확인
 - `wait-simple`, `wait-twice`, `wait-bad-pid`, `wait-killed`: wait 규칙 확인
+- stack overflow 회귀 확인: Docker에서 `write-normal`, `open-empty`, `wait-simple`을 산출물 삭제 후 단독 재실행하고, 마지막에 `make check`로 전체 확인
