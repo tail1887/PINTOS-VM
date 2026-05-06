@@ -213,8 +213,6 @@ static int fd_alloc(struct file *file)
 		if (curr->fd_table[fd] == NULL)
 		{
 			curr->fd_table[fd] = file;
-			if (fd >= curr->next_fd)
-				curr->next_fd = fd + 1;
 			return fd;
 		}
 	}

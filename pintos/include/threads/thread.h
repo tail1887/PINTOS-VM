@@ -133,7 +133,6 @@ struct thread {
 	/* Owned by userprog/process.c. */
 	uint64_t *pml4;                     /* Page map level 4 */
 	struct file *fd_table[ARG_MAX];     // fd -> file.
-	int next_fd;                        // 다음 fd.
 	struct list children;               // 자식 목록.
 	struct child_status *my_status;     // 내 종료 기록.
 	int exit_status;                    // 내 종료값.

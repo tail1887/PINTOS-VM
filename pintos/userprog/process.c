@@ -106,8 +106,6 @@ child_status_create(void)
 static bool
 duplicate_fd_table(struct thread *parent, struct thread *child)
 {
-	child->next_fd = parent->next_fd;
-
 	for (int fd = 2; fd < ARG_MAX; fd++)
 	{
 		struct file *parent_file = parent->fd_table[fd];
