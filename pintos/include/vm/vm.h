@@ -34,6 +34,7 @@ enum vm_type {
 struct page_operations;
 struct thread;
 
+
 #define VM_TYPE(type) ((type) & 7)
 
 /* The representation of "page".
@@ -44,7 +45,8 @@ struct page {
 	const struct page_operations *operations;
 	void *va;              /* Address in terms of user space */
 	struct frame *frame;   /* Back reference for frame */
-
+	struct list_elem elem;
+	bool writable;
 	/* Your implementation */
 
 	/* Per-type data are binded into the union.
@@ -63,6 +65,7 @@ struct page {
 struct frame {
 	void *kva;
 	struct page *page;
+	struct hash_elem *elem;
 };
 
 /* The function table for page operations.
@@ -85,6 +88,7 @@ struct page_operations {
  * We don't want to force you to obey any specific design for this struct.
  * All designs up to you for this. */
 struct supplemental_page_table {
+	struct hash hash;
 };
 
 #include "threads/thread.h"

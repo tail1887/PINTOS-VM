@@ -3,7 +3,7 @@
 
 #include <stdint.h>
 #include <stddef.h>
-
+#include "lib/kernel/hash.h"
 /* How to allocate pages. */
 enum palloc_flags {
 	PAL_ASSERT = 001,           /* Panic on failure. */
