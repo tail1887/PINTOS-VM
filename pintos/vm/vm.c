@@ -3,6 +3,7 @@
 #include "threads/malloc.h"
 #include "vm/vm.h"
 #include "vm/inspect.h"
+#include "lib/kernel/hash.h"
 
 /* Initializes the virtual memory subsystem by invoking each subsystem's
  * intialize codes. */
@@ -36,6 +37,7 @@ page_get_type (struct page *page) {
 static struct frame *vm_get_victim (void);
 static bool vm_do_claim_page (struct page *page);
 static struct frame *vm_evict_frame (void);
+static unsigned page_hash(const struct hash_elem *e, void *aux); 
 
 /* Create the pending page object with initializer. If you want to create a
  * page, do not create it directly and make it through this function or
@@ -173,8 +175,8 @@ vm_do_claim_page (struct page *page) {
 
 /* Initialize new supplemental page table */
 void
-supplemental_page_table_init (struct supplemental_page_table *spt UNUSED) {
-	
+supplemental_page_table_init (struct supplemental_page_table *spt) {
+	hash_init(&spt->hash, page_hash, page_less, NULL); 
 }
 
 /* Copy supplemental page table from src to dst */
@@ -188,4 +190,22 @@ void
 supplemental_page_table_kill (struct supplemental_page_table *spt UNUSED) {
 	/* TODO: Destroy all the supplemental_page_table hold by thread and
 	 * TODO: writeback all the modified contents to the storage. */
+}
+
+/*추가한 헬퍼함수들*/
+//pgae->va 를 hash하는데, 어느 bucket으로 갈지
+static unsigned
+page_hash(const struct hash_elem *e, void *aux){
+	UNUSED(aux);
+	struct page *pe = hash_entry(e, struct page, elem);
+	return hash_bytes(&pe->va, sizeof pe->va);
+}
+
+//bucket 안에서 원소들을 어떻게 비교할 것인지
+bool
+page_less(const struct hash_elem *a, const struct hash_elem *b, void *aux){
+	UNUSED(aux);
+	struct page *pa = hash_entry(a, struct page, elem);
+	struct page *pb = hash_entry(b, struct page, elem);
+	return pb->va < pb->va;
 }
