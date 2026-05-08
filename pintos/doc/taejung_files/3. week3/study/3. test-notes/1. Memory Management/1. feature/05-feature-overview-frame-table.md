@@ -1,4 +1,4 @@
-# 01 — Frame Table 전체 개념과 동작 흐름
+# 05 — Frame Table 전체 개념과 동작 흐름
 
 이 문서는 frame table, eviction, swap의 큰 흐름을 잡기 위한 개요 문서입니다.
 
@@ -56,6 +56,15 @@ sequenceDiagram
 
 ## 6) 학습 순서
 
-1. `02-feature-frame-allocation-and-claim.md`
-2. `03-feature-eviction-and-accessed-bit.md`
-3. `04-feature-anonymous-swap-in-out.md`
+1. `06-feature-frame-allocation-and-claim.md`
+2. `07-feature-eviction-and-accessed-bit.md`
+3. `../../5. Swap In&Out/1. feature/01-feature-anonymous-swap-in-out.md`
+
+---
+
+## 7) 구현 전 체크 질문
+
+- frame과 page의 소유/수명 차이를 설명할 수 있는가?
+- user frame은 항상 `PAL_USER`로 확보되는가?
+- eviction 후 victim page의 pml4 mapping이 제거되는가?
+- anonymous page와 file-backed page의 backing store 정책을 구분했는가?

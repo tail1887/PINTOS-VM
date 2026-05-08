@@ -37,27 +37,87 @@ flowchart TD
   D -->|no| X
 ```
 
-## 4. 기능별 가이드
+## 4. 기능별 가이드 (개념/흐름 + 구현 주석 위치)
 
-### 4.1 Stack lower bound
-- 위치: `vm/vm.c`
-- `USER_STACK`에서 최대 stack 크기를 뺀 주소보다 아래는 거부합니다.
+### 4.1 기능 A: stack lower bound 적용
+#### 개념 설명
+stack growth는 무한히 허용되면 안 됩니다. `USER_STACK`에서 최대 stack 크기를 뺀 하한을 두고, 그보다 낮은 주소는 잘못된 접근으로 처리해야 합니다.
 
-### 4.2 Invalid access
-- 위치: `userprog/exception.c`, `vm/vm.c`
-- write/read/not-present 조건과 함께 kill 여부를 판정합니다.
+#### 시퀀스 및 흐름
+```mermaid
+flowchart TD
+  ADDR[fault address] --> USER{user address?}
+  USER -- 아니오 --> FAIL[invalid access]
+  USER -- 예 --> LOWER{stack lower bound 이상?}
+  LOWER -- 아니오 --> FAIL
+  LOWER -- 예 --> NEXT[rsp 근접 검사]
+```
+
+1. fault address가 user virtual address인지 확인한다.
+2. `USER_STACK - max_stack_size`보다 낮은 주소를 거부한다.
+3. 하한 검사를 통과한 주소만 rsp 근접 조건으로 넘긴다.
+
+#### 구현 주석 (보면 되는 함수/구조체)
+- 위치: `vm/vm.c`의 `vm_try_handle_fault()`
+- 위치: stack maximum size 상수 정의 위치
+
+### 4.2 기능 B: anonymous stack page 생성
+#### 개념 설명
+정상 stack growth로 판정되면 fault address가 속한 page를 anonymous writable page로 등록해야 합니다. page 단위로 만들지 않으면 같은 stack page 내부 접근에서 SPT lookup이 흔들릴 수 있습니다.
+
+#### 시퀀스 및 흐름
+```mermaid
+flowchart LR
+  GROW[stack growth 허용] --> ROUND[pg_round_down]
+  ROUND --> ALLOC[VM_ANON page 등록]
+  ALLOC --> CLAIM[vm_claim_page]
+```
+
+1. fault address를 page boundary로 내린다.
+2. anonymous writable page를 SPT에 등록한다.
+3. 즉시 claim해서 fault를 복구한다.
+
+#### 구현 주석 (보면 되는 함수/구조체)
+- 위치: `vm/vm.c`의 `vm_stack_growth()`
+- 위치: `vm/vm.c`의 `vm_alloc_page()`, `vm_claim_page()`
+
+### 4.3 기능 C: invalid access 차단
+#### 개념 설명
+SPT miss를 모두 stack으로 취급하면 bad pointer 테스트가 통과하지 못합니다. kernel address, 너무 낮은 주소, rsp와 무관한 주소는 stack growth가 아니라 프로세스 종료 경로로 보내야 합니다.
+
+#### 시퀀스 및 흐름
+```mermaid
+flowchart LR
+  MISS[SPT miss] --> CHECK[주소/rsp/limit 검사]
+  CHECK --> OK{stack growth 조건 만족?}
+  OK -- 예 --> GROW[stack page 생성]
+  OK -- 아니오 --> KILL[process kill]
+```
+
+1. not-present fault가 아닌 write-protect fault와 구분한다.
+2. kernel address와 NULL 근처 주소를 거부한다.
+3. stack 조건 실패 시 false를 반환해 page fault handler가 종료 처리하도록 한다.
+
+#### 구현 주석 (보면 되는 함수/구조체)
+- 위치: `vm/vm.c`의 `vm_try_handle_fault()`
+- 위치: `userprog/exception.c`의 fault 실패 처리
 
 ## 5. 구현 주석
 
 ### 5.1 `vm_stack_growth()`
 
-#### 5.1.1 anonymous stack page 생성
-- 위치: `vm/vm.c`
+#### 5.1.1 `vm_stack_growth()`에서 anonymous stack page 생성
+- 수정 위치: `vm/vm.c`의 `vm_stack_growth()`
 - 역할: stack page를 SPT에 등록하고 claim한다.
 - 규칙 1: page-aligned fault address로 생성한다.
 - 규칙 2: type은 anonymous page여야 한다.
 - 규칙 3: writable page로 만든다.
 - 금지 1: 같은 upage를 중복 insert하지 않는다.
+
+구현 체크 순서:
+1. fault address를 `pg_round_down()`으로 stack page 기준 주소로 정규화한다.
+2. `vm_alloc_page(VM_ANON | VM_MARKER_0, upage, true)` 또는 팀 구현의 anonymous page 생성 함수를 호출한다.
+3. 생성 성공 후 `vm_claim_page(upage)`로 즉시 frame을 붙여 fault를 복구한다.
 
 ## 6. 테스팅 방법
 

@@ -38,26 +38,87 @@ sequenceDiagram
   P->>K: zero fill rest
 ```
 
-## 4. 기능별 가이드
+## 4. 기능별 가이드 (개념/흐름 + 구현 주석 위치)
 
-### 4.1 File page initializer
-- 위치: `vm/file.c`
-- file-backed page operation을 설정합니다.
+### 4.1 기능 A: file-backed page operation 설정
+#### 개념 설명
+file-backed page는 anonymous page와 달리 backing file이 있습니다. fault나 eviction에서 file 전용 swap-in/out 정책을 쓰도록 page operation table을 file-backed 전용으로 설정해야 합니다.
 
-### 4.2 Swap in
-- 위치: `vm/file.c`
-- file page의 "swap in"은 파일에서 다시 읽는 동작입니다.
+#### 시퀀스 및 흐름
+```mermaid
+flowchart LR
+  INIT[file_backed_initializer] --> OPS[page->operations = file_ops]
+  OPS --> META[file metadata 연결]
+  META --> READY[file-backed page 준비]
+```
+
+1. file-backed page initializer에서 operation table을 설정한다.
+2. page별 file, offset, read_bytes, zero_bytes metadata를 보존한다.
+3. claim 시 file-backed `swap_in()`이 호출될 수 있게 연결한다.
+
+#### 구현 주석 (보면 되는 함수/구조체)
+- 위치: `vm/file.c`의 `file_backed_initializer()`
+- 위치: `include/vm/file.h`의 `struct file_page`
+
+### 4.2 기능 B: fault 시점 file read
+#### 개념 설명
+mmap page는 접근하기 전까지 frame에 올라오지 않습니다. fault가 나면 저장해 둔 file offset에서 필요한 byte만 읽고, page의 나머지 영역은 zero fill해야 합니다.
+
+#### 시퀀스 및 흐름
+```mermaid
+sequenceDiagram
+  participant PF as page fault
+  participant S as file_backed_swap_in
+  participant F as backing file
+  participant K as frame kva
+  PF->>S: claim file page
+  S->>F: read_at(offset, read_bytes)
+  S->>K: zero fill rest
+```
+
+1. `page->file` metadata에서 file offset과 read/zero 크기를 확인한다.
+2. frame kva에 read_bytes만큼 파일 내용을 읽는다.
+3. 남은 zero_bytes 영역을 0으로 채운다.
+
+#### 구현 주석 (보면 되는 함수/구조체)
+- 위치: `vm/file.c`의 `file_backed_swap_in()`
+- 위치: filesys file read API
+
+### 4.3 기능 C: partial page와 file length 경계
+#### 개념 설명
+파일 끝이 page 중간에서 끝나는 경우 나머지 영역은 파일 내용이 아니라 0이어야 합니다. 이 경계를 놓치면 mmap read 테스트에서 쓰레기 값이 보이거나 파일 크기를 잘못 해석합니다.
+
+#### 시퀀스 및 흐름
+```mermaid
+flowchart TD
+  PAGE[file-backed page] --> READ[read_bytes만 file read]
+  READ --> ZERO[zero_bytes memset]
+  ZERO --> OK[PGSIZE frame 완성]
+```
+
+1. read_bytes가 PGSIZE를 넘지 않는지 확인한다.
+2. zero fill 범위가 `kva + read_bytes`부터 시작하는지 확인한다.
+3. file length 밖의 영역을 읽거나 쓰지 않는다.
+
+#### 구현 주석 (보면 되는 함수/구조체)
+- 위치: `vm/file.c`의 `file_backed_swap_in()`
+- 위치: mmap aux 또는 file_page metadata 정의
 
 ## 5. 구현 주석
 
 ### 5.1 `file_backed_swap_in()`
 
-#### 5.1.1 file page 로드
-- 위치: `vm/file.c`
+#### 5.1.1 `file_backed_swap_in()`에서 file-backed page 로드
+- 수정 위치: `vm/file.c`의 `file_backed_swap_in()`
 - 역할: file-backed page 내용을 frame에 채운다.
 - 규칙 1: 저장된 offset에서 read_bytes만큼 읽는다.
 - 규칙 2: 나머지 zero_bytes 영역은 0으로 채운다.
 - 금지 1: file length 밖의 영역을 쓰레기 값으로 남기지 않는다.
+
+구현 체크 순서:
+1. `page->file` metadata에서 file, offset, read_bytes, zero_bytes를 확인한다.
+2. 전달받은 kva에 file 내용을 read_bytes만큼 읽는다.
+3. read 이후 남은 zero_bytes 영역을 0으로 채우고 read 실패 시 false를 반환한다.
 
 ## 6. 테스팅 방법
 

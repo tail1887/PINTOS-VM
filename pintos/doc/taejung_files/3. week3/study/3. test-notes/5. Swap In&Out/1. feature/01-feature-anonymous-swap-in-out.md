@@ -1,4 +1,4 @@
-# 04 — 기능 3: Anonymous Swap In/Out
+# 01 — 기능 1: Anonymous Swap In/Out
 
 ## 1. 구현 목적 및 필요성
 
@@ -39,35 +39,109 @@ sequenceDiagram
   A->>B: slot 해제
 ```
 
-## 4. 기능별 가이드
+## 4. 기능별 가이드 (개념/흐름 + 구현 주석 위치)
 
-### 4.1 Swap table
-- 위치: `vm/anon.c`
-- swap disk sector 범위와 bitmap slot을 연결합니다.
+### 4.1 기능 A: swap disk와 slot table 초기화
+#### 개념 설명
+swap은 anonymous page를 임시로 저장할 backing store입니다. disk sector를 PGSIZE 단위 slot으로 묶고, 어떤 slot이 비어 있는지 bitmap으로 관리해야 합니다.
 
-### 4.2 Swap in/out
-- 위치: `vm/anon.c`
-- page 단위로 disk read/write를 수행합니다.
+#### 시퀀스 및 흐름
+```mermaid
+flowchart LR
+  INIT[vm_anon_init] --> DISK[swap disk 획득]
+  DISK --> SLOTS[sector 수로 slot 개수 계산]
+  SLOTS --> BITMAP[swap bitmap 생성]
+```
+
+1. Pintos swap disk를 얻는다.
+2. disk sector 수를 PGSIZE 단위 slot 개수로 변환한다.
+3. slot 사용 여부를 추적할 bitmap과 lock을 초기화한다.
+
+#### 구현 주석 (보면 되는 함수/구조체)
+- 위치: `vm/anon.c`의 `vm_anon_init()`
+- 위치: `devices/disk.h`와 `lib/kernel/bitmap.h`
+
+### 4.2 기능 B: anonymous page swap out
+#### 개념 설명
+free frame이 부족하면 anonymous page의 현재 내용을 swap disk에 저장해야 합니다. page는 저장된 slot 번호를 기억해야 나중에 같은 내용을 복구할 수 있습니다.
+
+#### 시퀀스 및 흐름
+```mermaid
+flowchart TD
+  OUT[anon_swap_out] --> FIND[free slot 탐색]
+  FIND --> WRITE[PGSIZE만큼 disk write]
+  WRITE --> SAVE[page에 slot 저장]
+```
+
+1. bitmap에서 free slot을 할당한다.
+2. frame kva를 sector 단위로 나누어 PGSIZE만큼 기록한다.
+3. page metadata에 slot 번호를 저장한다.
+
+#### 구현 주석 (보면 되는 함수/구조체)
+- 위치: `vm/anon.c`의 `anon_swap_out()`
+- 위치: swap slot sector 계산 helper
+
+### 4.3 기능 C: anonymous page swap in
+#### 개념 설명
+swap out된 page에 다시 접근하면 swap disk에 저장된 내용을 새 frame으로 읽어 와야 합니다. 읽기가 끝난 slot은 더 이상 page가 소유하지 않으므로 bitmap에서 해제합니다.
+
+#### 시퀀스 및 흐름
+```mermaid
+flowchart LR
+  IN[anon_swap_in] --> SLOT[page slot 확인]
+  SLOT --> READ[PGSIZE만큼 disk read]
+  READ --> FREE[bitmap slot 해제]
+```
+
+1. page metadata의 slot 번호가 유효한지 확인한다.
+2. 해당 slot의 sector들을 frame kva로 읽는다.
+3. 성공 후 slot을 해제하고 page metadata를 초기 상태로 되돌린다.
+
+#### 구현 주석 (보면 되는 함수/구조체)
+- 위치: `vm/anon.c`의 `anon_swap_in()`
+- 위치: `vm/vm.c`의 `vm_do_claim_page()`
 
 ## 5. 구현 주석
 
 ### 5.1 `vm_anon_init()`
 
-#### 5.1.1 swap table 초기화
-- 위치: `vm/anon.c`
+#### 5.1.1 `vm_anon_init()`에서 swap disk와 bitmap 초기화
+- 수정 위치: `vm/anon.c`의 `vm_anon_init()`
 - 역할: swap disk와 slot bitmap을 초기화한다.
 - 규칙 1: 한 slot은 PGSIZE만큼의 sector 묶음이다.
 - 규칙 2: bitmap 접근은 동기화한다.
 - 금지 1: swap disk가 없는데 swap을 성공 처리하지 않는다.
 
-### 5.2 `anon_swap_out()` / `anon_swap_in()`
+구현 체크 순서:
+1. `disk_get(1, 1)` 등 Pintos swap disk를 얻는 코드를 확인한다.
+2. disk sector 수를 PGSIZE 단위 slot 개수로 나누어 bitmap을 만든다.
+3. swap bitmap과 관련 lock을 초기화하고 disk 없음/slot 없음 실패 정책을 정한다.
 
-#### 5.2.1 page 단위 disk I/O
-- 위치: `vm/anon.c`
-- 역할: anonymous page 내용을 swap disk에 저장/복구한다.
+### 5.2 `anon_swap_out()`
+
+#### 5.2.1 `anon_swap_out()`에서 page 단위 swap disk write 수행
+- 수정 위치: `vm/anon.c`의 `anon_swap_out()`
+- 역할: anonymous page 내용을 swap disk에 저장한다.
 - 규칙 1: swap out 시 free slot을 할당한다.
-- 규칙 2: swap in 성공 후 slot을 해제한다.
 - 금지 1: 같은 page가 여러 slot을 동시에 소유하지 않는다.
+
+구현 체크 순서:
+1. bitmap에서 free slot을 잡고 slot 번호를 page metadata에 기록한다.
+2. frame kva를 PGSIZE만큼 sector 단위로 swap disk에 쓴다.
+3. 모든 sector write가 끝난 뒤 frame이 비워졌음을 eviction 흐름과 맞춘다.
+
+### 5.3 `anon_swap_in()`
+
+#### 5.3.1 `anon_swap_in()`에서 page 단위 swap disk read 수행
+- 수정 위치: `vm/anon.c`의 `anon_swap_in()`
+- 역할: swap disk에 저장된 anonymous page 내용을 frame에 복구한다.
+- 규칙 1: swap in 성공 후 slot을 해제한다.
+- 금지 1: slot 해제 전에 page metadata를 잃어버리지 않는다.
+
+구현 체크 순서:
+1. page metadata에서 swap slot 번호를 읽고 유효성을 확인한다.
+2. 해당 slot의 sector들을 kva로 PGSIZE만큼 읽는다.
+3. bitmap slot을 해제한 뒤 page metadata의 slot 상태를 초기화한다.
 
 ## 6. 테스팅 방법
 

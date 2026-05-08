@@ -42,22 +42,82 @@ sequenceDiagram
 2. 부모 SPT를 순회하며 page별 복사 정책을 적용한다.
 3. exit에서 SPT를 순회하며 page type별 cleanup을 수행한다.
 
-## 4. 기능별 가이드
+## 4. 기능별 가이드 (개념/흐름 + 구현 주석 위치)
 
-### 4.1 SPT copy
-- 위치: `vm/vm.c`, `userprog/process.c`
-- uninit, anonymous, file page별 복사 전략을 구분합니다.
+### 4.1 기능 A: fork 전 자식 SPT 초기화
+#### 개념 설명
+fork에서 자식 주소 공간을 만들 때 pml4만 복사해서는 VM metadata가 따라오지 않습니다. 자식 SPT를 먼저 초기화한 뒤 부모 SPT의 page들을 같은 주소 기준으로 재구성해야 합니다.
 
-### 4.2 SPT destroy
-- 위치: `vm/vm.c`
-- hash destroy callback에서 page destroy를 호출합니다.
+#### 시퀀스 및 흐름
+```mermaid
+sequenceDiagram
+  participant C as child process
+  participant S as child SPT
+  participant P as parent SPT
+  C->>S: supplemental_page_table_init
+  C->>P: supplemental_page_table_copy 요청
+  P-->>S: page별 복사
+```
+
+1. `process_fork()`에서 자식 SPT가 빈 hash table로 초기화되는지 확인한다.
+2. 부모 SPT 순회 전에 자식 pml4와 SPT 상태가 준비되어 있어야 한다.
+3. copy 실패 시 자식에 이미 들어간 page를 정리할 수 있어야 한다.
+
+#### 구현 주석 (보면 되는 함수/구조체)
+- 위치: `userprog/process.c`의 `process_fork()` 경로
+- 위치: `vm/vm.c`의 `supplemental_page_table_init()`
+
+### 4.2 기능 B: page type별 SPT 복사
+#### 개념 설명
+SPT copy는 단순 포인터 복사가 아닙니다. uninit page는 lazy 정보를, anonymous page는 메모리 내용을, file-backed page는 file mapping 정보를 각각의 정책에 맞게 새 page로 만들어야 합니다.
+
+#### 시퀀스 및 흐름
+```mermaid
+flowchart TD
+  PAGE[parent page] --> TYPE{page type}
+  TYPE -- uninit --> COPY_LAZY[lazy aux 복사]
+  TYPE -- anon --> COPY_MEM[frame 내용 복사]
+  TYPE -- file --> COPY_FILE[file mapping 복사]
+  COPY_LAZY --> INSERT[child SPT insert]
+  COPY_MEM --> INSERT
+  COPY_FILE --> INSERT
+```
+
+1. 부모 SPT의 hash entry를 순회한다.
+2. page type에 따라 새 page를 생성하고 필요한 metadata를 복사한다.
+3. loaded page는 자식 frame에도 동일한 내용을 보이게 만든다.
+
+#### 구현 주석 (보면 되는 함수/구조체)
+- 위치: `vm/vm.c`의 `supplemental_page_table_copy()`
+- 위치: `vm/uninit.c`, `vm/anon.c`, `vm/file.c`의 type별 initializer
+
+### 4.3 기능 C: SPT destroy와 page 자원 해제
+#### 개념 설명
+process exit에서는 SPT에 남은 모든 page를 정리해야 합니다. hash element만 삭제하면 frame, swap slot, file mapping이 남을 수 있으므로 반드시 page type별 destroy hook까지 이어져야 합니다.
+
+#### 시퀀스 및 흐름
+```mermaid
+flowchart LR
+  EXIT[process_exit] --> KILL[supplemental_page_table_kill]
+  KILL --> WALK[SPT entry 순회]
+  WALK --> DESTROY[page destroy hook]
+  DESTROY --> FREE[page/frame/swap/file 정리]
+```
+
+1. process 종료 경로에서 SPT kill이 한 번 호출되는지 확인한다.
+2. hash destroy callback 또는 순회 로직에서 모든 page를 방문한다.
+3. loaded, swapped, mmap page가 각자의 backing resource를 정리하도록 연결한다.
+
+#### 구현 주석 (보면 되는 함수/구조체)
+- 위치: `vm/vm.c`의 `supplemental_page_table_kill()`
+- 위치: `userprog/process.c`의 `process_exit()`
 
 ## 5. 구현 주석
 
 ### 5.1 `supplemental_page_table_copy()`
 
-#### 5.1.1 부모 page 순회
-- 위치: `vm/vm.c`
+#### 5.1.1 `supplemental_page_table_copy()`에서 부모 SPT page 순회
+- 수정 위치: `vm/vm.c`의 `supplemental_page_table_copy()`
 - 역할: 부모 SPT의 모든 page를 자식 SPT에 재구성한다.
 - 규칙 1: writable, type, va 정보를 보존한다.
 - 규칙 2: 이미 loaded된 page는 내용도 복사하거나 COW 정책을 적용한다.
@@ -70,8 +130,8 @@ sequenceDiagram
 
 ### 5.2 `supplemental_page_table_kill()`
 
-#### 5.2.1 page destroy 순회
-- 위치: `vm/vm.c`
+#### 5.2.1 `supplemental_page_table_kill()`에서 page destroy 순회
+- 수정 위치: `vm/vm.c`의 `supplemental_page_table_kill()`
 - 역할: process 종료 시 SPT의 모든 page를 해제한다.
 - 규칙 1: page type별 destroy hook을 호출한다.
 - 규칙 2: frame mapping, swap slot, file mapping cleanup과 연결한다.

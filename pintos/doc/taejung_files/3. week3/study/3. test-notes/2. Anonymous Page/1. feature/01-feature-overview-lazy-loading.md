@@ -66,3 +66,12 @@ sequenceDiagram
 1. `02-feature-uninit-page-and-initializer.md`
 2. `03-feature-executable-lazy-load.md`
 3. `04-feature-anonymous-page.md`
+
+---
+
+## 7) 구현 전 체크 질문
+
+- aux가 fault 시점까지 살아 있는 저장소에 있는가?
+- executable lazy page의 read_bytes/zero_bytes가 page boundary 기준으로 계산되는가?
+- uninit page가 claim 중 정확히 한 번만 최종 타입으로 초기화되는가?
+- anonymous page와 file-backed page의 swap/write-back 정책을 구분했는가?

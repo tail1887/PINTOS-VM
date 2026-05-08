@@ -11,10 +11,10 @@
 ## 2. 현재 표준 문서 세트
 
 ### feature 문서
-- `01-feature-overview-frame-table.md`
-- `02-feature-frame-allocation-and-claim.md`
-- `03-feature-eviction-and-accessed-bit.md`
-- `04-feature-anonymous-swap-in-out.md`
+- `05-feature-overview-frame-table.md`
+- `06-feature-frame-allocation-and-claim.md`
+- `07-feature-eviction-and-accessed-bit.md`
+- `../../5. Swap In&Out/1. feature/01-feature-anonymous-swap-in-out.md`
 
 ### testing 문서
 - `00-README.md`

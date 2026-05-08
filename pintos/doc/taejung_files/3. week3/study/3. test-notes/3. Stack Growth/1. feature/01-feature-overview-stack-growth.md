@@ -63,3 +63,12 @@ sequenceDiagram
 
 1. `02-feature-fault-address-and-rsp.md`
 2. `03-feature-stack-limit-and-invalid-access.md`
+
+---
+
+## 7) 구현 전 체크 질문
+
+- SPT miss와 기존 lazy/swapped page fault를 먼저 구분하는가?
+- fault address가 rsp 근처인지 확인하는 기준이 명확한가?
+- 최대 stack 크기 하한을 넘는 접근을 거부하는가?
+- 새 stack page를 anonymous writable page로 생성하는가?
