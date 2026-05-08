@@ -72,12 +72,15 @@ spt_find_page (struct supplemental_page_table *spt UNUSED, void *va UNUSED) {
 }
 
 /* Insert PAGE into spt with validation. */
+//SPT에 page의 hash_elem을 넣고, 같은 va를 가진 page의 elem이 들어있었다면 false
 bool
-spt_insert_page (struct supplemental_page_table *spt UNUSED,
-		struct page *page UNUSED) {
-	int succ = false;
-	/* TODO: Fill this function. */
-
+spt_insert_page (struct supplemental_page_table *spt,
+		struct page *page) {
+	bool succ = false;
+	struct hash_elem *result = hash_insert(&spt->hash, &page->elem);
+	if (result == NULL){
+		succ=true;
+	}
 	return succ;
 }
 
