@@ -91,10 +91,11 @@ spt_insert_page (struct supplemental_page_table *spt,
 	return succ;
 }
 
+//해시에서 page의 hash_elem 제거, 페이지 할당 해제
 void
 spt_remove_page (struct supplemental_page_table *spt, struct page *page) {
-	vm_dealloc_page (page);
-	return true;
+	hash_delete(&spt->hash, &page->elem);
+	vm_dealloc_page (page);	
 }
 
 /* Get the struct frame, that will be evicted. */
