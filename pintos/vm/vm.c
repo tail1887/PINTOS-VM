@@ -4,6 +4,7 @@
 #include "vm/vm.h"
 #include "vm/inspect.h"
 #include "lib/kernel/hash.h"
+#include "threads/mmu.h"
 
 /* Initializes the virtual memory subsystem by invoking each subsystem's
  * intialize codes. */
@@ -63,12 +64,18 @@ err:
 }
 
 /* Find VA from spt and return page. On error, return NULL. */
+//va를 page시작주소로 맞추고, spt에서 해당하는 page가 있는지 찾아서 반환
 struct page *
-spt_find_page (struct supplemental_page_table *spt UNUSED, void *va UNUSED) {
-	struct page *page = NULL;
-	/* TODO: Fill this function. */
-
-	return page;
+spt_find_page (struct supplemental_page_table *spt, void *va ) {
+	va = pg_round_down(va);
+	struct page temp;
+	temp.va = va;
+	struct hash_elem *e = hash_find(&spt->hash, &temp.elem);
+	if (e != NULL){
+		struct page *pe = hash_entry(e, struct page, elem);
+		return pe;
+	}
+	return NULL;
 }
 
 /* Insert PAGE into spt with validation. */
