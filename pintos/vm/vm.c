@@ -43,7 +43,8 @@ static unsigned page_hash(const struct hash_elem *e, void *aux);
 /* Create the pending page object with initializer. If you want to create a
  * page, do not create it directly and make it through this function or
  * `vm_alloc_page`. */
-bool
+//upage에 해당하는 uninit page를 만들고 현재 스레드의 SPT에 등록한다
+ bool
 vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 		vm_initializer *init, void *aux) {
 
@@ -53,8 +54,23 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 	
 	/* Check wheter the upage is already occupied or not. */
 	if (spt_find_page (spt, upage) == NULL) {
-		struct page *page = malloc(sizeof page);
+		bool (*initializer)(struct page *, enum vm_type, void *) = NULL;
+		if (VM_TYPE(type) == VM_ANON){
+			initializer = anon_initializer;
+		} else if (VM_TYPE(type) == VM_FILE) {
+			initializer = file_backed_initializer;
+		}
+		struct page *page = malloc(sizeof *page);
+		if (page == NULL){
+			return false;
+		}
+		uninit_new(page, upage, init, type, aux, initializer);
+		page->writable = writable;
 
+		if (spt_insert_page(spt, page)){
+			return true;
+		}
+		free(page);
 	}
  
 err:
