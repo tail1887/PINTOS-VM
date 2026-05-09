@@ -24,3 +24,4 @@
 - stack growth 판정은 SPT miss 이후에만 다룬다.
 - 허용 조건을 너무 넓게 잡지 않는다.
 - 생성되는 page type은 anonymous page로 기록한다.
+- deep-dive 문서 5장은 `규칙=불변식`, `구현 체크 순서=실제 구현 단계`로 분리해 작성한다.
