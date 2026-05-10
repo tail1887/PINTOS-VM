@@ -212,15 +212,25 @@ vm_claim_page (void *va UNUSED) {
 }
 
 /* Claim the PAGE and set up the mmu. */
+//page에 frame을 할당하고 page table에 매핑한 뒤 내용을 메모리에 올린다
 static bool
 vm_do_claim_page (struct page *page) {
 	struct frame *frame = vm_get_frame ();
-
+	if (frame==NULL){
+		return false;
+	}
 	/* Set links */
 	frame->page = page;
 	page->frame = frame;
-
-	/* TODO: Insert page table entry to map page's VA to frame's PA. */
+	bool success = pml4_set_page(thread_current()->pml4, page->va, frame->kva, page->writable);
+	if (!success){
+		frame->page = NULL;
+		page->frame = NULL;
+		list_remove(&frame->elem);
+		palloc_free_page(frame->kva);
+		free(frame);
+		return false;
+	}
 
 	return swap_in (page, frame->kva);
 }
