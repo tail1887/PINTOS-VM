@@ -34,7 +34,6 @@ enum vm_type {
 struct page_operations;
 struct thread;
 
-
 #define VM_TYPE(type) ((type) & 7)
 
 /* The representation of "page".

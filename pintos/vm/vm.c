@@ -5,6 +5,9 @@
 #include "vm/inspect.h"
 #include "lib/kernel/hash.h"
 #include "threads/mmu.h"
+#include "lib/kernel/list.h"
+
+static struct list frame_table;
 
 /* Initializes the virtual memory subsystem by invoking each subsystem's
  * intialize codes. */
@@ -18,6 +21,7 @@ vm_init (void) {
 	register_inspect_intr ();
 	/* DO NOT MODIFY UPPER LINES. */
 	/* TODO: Your code goes here. */
+	list_init(&frame_table);
 }
 
 /* Get the type of the page. This function is useful if you want to know the
@@ -43,6 +47,8 @@ static unsigned page_hash(const struct hash_elem *e, void *aux);
 /* Create the pending page object with initializer. If you want to create a
  * page, do not create it directly and make it through this function or
  * `vm_alloc_page`. */
+
+
 //upage에 해당하는 uninit page를 만들고 현재 스레드의 SPT에 등록한다
  bool
 vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
@@ -135,7 +141,7 @@ vm_evict_frame (void) {
  * and return it. This always return valid address. That is, if the user pool
  * memory is full, this function evicts the frame to get the available memory
  * space.*/
-//물리 메모리 frame 하나를 할당해 반환한다
+//물리 메모리 frame 하나를 할당하고, frame_table에 삽입하고, frame을 반환한다
 static struct frame *
 vm_get_frame (void) {
 	void *kva = palloc_get_page(PAL_USER); //물리 메모리 유저풀에서 프레임 하나 가져와라
@@ -149,6 +155,7 @@ vm_get_frame (void) {
 	}
 	frame->kva = kva;
 	frame->page = NULL;
+	list_push_back(&frame_table, &frame->elem);
 	ASSERT (frame != NULL);
 	ASSERT (frame->page == NULL);
 
