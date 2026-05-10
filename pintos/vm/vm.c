@@ -72,7 +72,7 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 		}
 		free(page);
 	}
- 
+
 err:
 	return false;
 }
@@ -135,13 +135,23 @@ vm_evict_frame (void) {
  * and return it. This always return valid address. That is, if the user pool
  * memory is full, this function evicts the frame to get the available memory
  * space.*/
+//물리 메모리 frame 하나를 할당해 반환한다
 static struct frame *
 vm_get_frame (void) {
-	struct frame *frame = NULL;
-	/* TODO: Fill this function. */
-
+	void *kva = palloc_get_page(PAL_USER); //물리 메모리 유저풀에서 프레임 하나 가져와라
+	if (kva == NULL){
+		return NULL;
+	}
+	struct frame *frame = malloc(sizeof *frame);
+	if (frame == NULL){
+		palloc_free_page(kva);
+		return NULL;
+	}
+	frame->kva = kva;
+	frame->page = NULL;
 	ASSERT (frame != NULL);
 	ASSERT (frame->page == NULL);
+
 	return frame;
 }
 

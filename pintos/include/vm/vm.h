@@ -65,7 +65,7 @@ struct page {
 struct frame {
 	void *kva;
 	struct page *page;
-	struct hash_elem *elem;
+	struct list_elem elem;
 };
 
 /* The function table for page operations.
