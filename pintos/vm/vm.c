@@ -43,6 +43,7 @@ static struct frame *vm_get_victim (void);
 static bool vm_do_claim_page (struct page *page);
 static struct frame *vm_evict_frame (void);
 static unsigned page_hash(const struct hash_elem *e, void *aux); 
+static bool page_less(const struct hash_elem *a, const struct hash_elem *b, void *aux);
 
 /* Create the pending page object with initializer. If you want to create a
  * page, do not create it directly and make it through this function or
@@ -54,7 +55,7 @@ static unsigned page_hash(const struct hash_elem *e, void *aux);
 vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 		vm_initializer *init, void *aux) {
 
-	ASSERT (VM_TYPE(type) != VM_UNINIT)
+	ASSERT (VM_TYPE(type) != VM_UNINIT);
 	struct supplemental_page_table *spt = &thread_current ()->spt;
 	upage=pg_round_down(upage);
 	
@@ -170,6 +171,7 @@ vm_stack_growth (void *addr UNUSED) {
 /* Handle the fault on write_protected page */
 static bool
 vm_handle_wp (struct page *page UNUSED) {
+	return false;
 }
 
 /* Return true on success */
@@ -250,6 +252,7 @@ supplemental_page_table_init (struct supplemental_page_table *spt) {
 bool
 supplemental_page_table_copy (struct supplemental_page_table *dst UNUSED,
 		struct supplemental_page_table *src UNUSED) {
+	return false;
 }
 
 /* Free the resource hold by the supplemental page table */
@@ -269,10 +272,10 @@ page_hash(const struct hash_elem *e, void *aux){
 }
 
 //bucket 안에서 원소들을 어떻게 비교할 것인지
-bool
+static bool
 page_less(const struct hash_elem *a, const struct hash_elem *b, void *aux){
 	UNUSED(aux);
 	struct page *pa = hash_entry(a, struct page, elem);
 	struct page *pb = hash_entry(b, struct page, elem);
-	return pb->va < pb->va;
+	return pa->va < pb->va;
 }
