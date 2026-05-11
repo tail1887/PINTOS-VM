@@ -28,18 +28,22 @@ uninit_new (struct page *page, void *va, vm_initializer *init,
 		enum vm_type type, void *aux,
 		bool (*initializer)(struct page *, enum vm_type, void *)) {
 	ASSERT (page != NULL);
-
+	
 	*page = (struct page) {
-		.operations = &uninit_ops,
 		.va = va,
-		.frame = NULL, /* no frame for now */
+		.frame = NULL,
+		.writable = false,
+		.operations = &uninit_ops,
 		.uninit = (struct uninit_page) {
 			.init = init,
 			.type = type,
 			.aux = aux,
 			.page_initializer = initializer,
-		}
+		},
 	};
+
+	// struct page 초기화에서 .va = va가 유지되는지 확인한다.
+	ASSERT (page->va == va);
 }
 
 /* Initalize the page on first fault */

@@ -46,6 +46,23 @@ file_backed_destroy (struct page *page) {
 	struct file_page *file_page UNUSED = &page->file;
 }
 
+bool
+file_page_duplicate_for_fork (struct page *child, const struct page *parent)
+{
+	if (VM_TYPE (parent->operations->type) != VM_FILE)
+		return false;
+
+	memset (child, 0, sizeof *child);
+	child->va = parent->va;
+	child->writable = parent->writable;
+	child->operations = &file_ops;
+	memcpy (&child->file, &parent->file, sizeof child->file);
+
+	child->frame = NULL;
+
+	return true;
+}
+
 /* Do the mmap */
 void *
 do_mmap (void *addr, size_t length, int writable,

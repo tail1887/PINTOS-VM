@@ -50,3 +50,20 @@ static void
 anon_destroy (struct page *page) {
 	struct anon_page *anon_page = &page->anon;
 }
+
+bool
+anon_page_duplicate_for_fork (struct page *child, const struct page *parent)
+{
+	if (VM_TYPE (parent->operations->type) != VM_ANON)
+		return false;
+
+	memset (child, 0, sizeof *child);
+	child->va = parent->va;
+	child->writable = parent->writable;
+	child->operations = &anon_ops;
+	memcpy (&child->anon, &parent->anon, sizeof child->anon);
+
+	child->frame = NULL;
+
+	return true;
+}

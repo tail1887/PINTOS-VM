@@ -7,6 +7,12 @@ SPT에 page를 등록하고, fault address로 page를 찾고, cleanup 시 제거
 VM의 모든 기능은 “이 주소가 어떤 page인가”를 찾는 데서 시작합니다. insert/find/remove 경계가 흔들리면 fault 복구·중복 등록·누수가 동시에 터집니다.
 ### 무엇을 연결하는가 (기술 맥락)
 `pintos/vm/vm.c`의 `vm_alloc_page_with_initializer()`, `spt_find_page()`, `spt_insert_page()`, `spt_remove_page()`, `vm_dealloc_page()`, `vm_try_handle_fault()`와 `threads/vaddr.h`의 `pg_round_down()`을 연결합니다.
+
+### 이 문서(03) 단계 vs 뒤 단계 (구현 순서)
+- **03에서 끝내야 할 것**: SPT **insert / find / remove**와 `pg_round_down` 기준 조회, 중복 방지, 제거 시 `vm_dealloc_page`까지의 수명 규칙. 시퀀스상 **fault가 `spt_find_page`로 page를 찾는다**는 **맥락**은 여기서 고정한다.
+- **`vm_try_handle_fault`**: 위 맥락에서 **폴트 진입점 이름**으로만 같이 적어 둔다. **폴트 종류 판별·`vm_claim_page` 위임 등 본문 로직**은 이 시점에 필수가 아니며, **`06-feature-frame-allocation-and-claim.md`의 `vm_claim_page()` / `vm_do_claim_page()`** 가 갖춰진 뒤 한꺼번에 연결하는 것이 자연스럽다.
+- **검증·상세 시나리오**: `2. testing/01-spt-basic-and-page-fault.md`를 본다.
+
 ### 완성의 의미 (결과 관점)
 합법적인 lazy page는 fault에서 발견되고, 이미 사용 중인 주소는 중복 등록되지 않으며, remove는 hash 제거 후 destroy hook까지 한 번만 탄다.
 
@@ -74,6 +80,7 @@ flowchart TD
 #### 구현 주석 (보면 되는 함수/구조체)
 - 위치: `pintos/vm/vm.c`의 `spt_find_page()`
 - 위치: `pintos/threads/vaddr.h`의 `pg_round_down()`
+- 연계: 페이지 폴트 처리 시 같은 조회 규약으로 `vm_try_handle_fault()`가 `spt_find_page` 또는 `vm_claim_page`까지 이어진다. **폴트 본문 구현 목록은 `06-feature-frame-allocation-and-claim.md` §4.4·§5.4** 를 본다.
 
 ### 4.3 기능 C: page 제거와 destroy 경계
 #### 개념 설명
@@ -129,6 +136,11 @@ flowchart LR
 1. 제거 대상 page의 hash 노드를 `hash_delete`로 먼저 제거한다.
 2. 제거된 page를 `vm_dealloc_page()`로 넘겨 destroy/free를 수행한다.
 3. munmap/process_exit 경로에서 같은 page를 중복 제거하지 않게 호출 책임을 맞춘다.
+
+### 5.4 `vm_try_handle_fault()` (03 DoD 바깥, 위치만)
+- 위치: `pintos/vm/vm.c`의 `vm_try_handle_fault()`
+- 역할 요약: fault 시 SPT/find·claim과 맞물리는 진입점(§1 「뒤 단계」 참고).
+- 완결 문서: `06-feature-frame-allocation-and-claim.md` **§4.4 기능 D**, **§5.4**.
 
 ## 6. 테스팅 방법
 - lazy load 관련 단일 테스트

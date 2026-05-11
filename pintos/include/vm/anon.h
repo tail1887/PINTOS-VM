@@ -9,5 +9,6 @@ struct anon_page {
 
 void vm_anon_init (void);
 bool anon_initializer (struct page *page, enum vm_type type, void *kva);
+bool anon_page_duplicate_for_fork (struct page *child, const struct page *parent);
 
 #endif

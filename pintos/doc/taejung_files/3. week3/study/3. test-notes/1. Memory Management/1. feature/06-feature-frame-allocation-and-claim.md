@@ -6,7 +6,10 @@ page fault로 claim할 page에 user frame을 할당하고 pml4 mapping을 만드
 ### 왜 이걸 하는가 (문제 맥락)
 SPT의 page metadata만으로는 CPU가 접근할 수 없습니다. 실제 frame과 pml4 mapping이 없으면 fault가 끝나지 않습니다.
 ### 무엇을 연결하는가 (기술 맥락)
-`pintos/vm/vm.c`의 `vm_get_frame()`, `vm_evict_frame()`, `vm_do_claim_page()`, `vm_claim_page()`, `threads/mmu.h`·`threads/pml4.h`의 `pml4_set_page()`, page type별 `swap_in()`을 연결합니다.
+`pintos/vm/vm.c`의 `vm_try_handle_fault()`, `vm_get_frame()`, `vm_evict_frame()`, `vm_do_claim_page()`, `vm_claim_page()`, `threads/mmu.h`·`threads/pml4.h`의 `pml4_set_page()`, page type별 `swap_in()`을 연결합니다.
+
+폴트 진입점 **`vm_try_handle_fault()`** 는 `03-feature-spt-insert-find-remove.md`에서 이미 맥락상 연결되어 있다. **실제 폴트 → `vm_claim_page` 등 본 구현은 이 문서의 §5 (`vm_claim_page`/`vm_do_claim_page`)와 함께** 완결하면 된다. 검증은 `2. testing/01-spt-basic-and-page-fault.md`.
+
 ### 완성의 의미 (결과 관점)
 claim 성공 후 page는 frame을 가지고, pml4는 upage를 frame kva에 매핑합니다.
 
@@ -94,6 +97,60 @@ flowchart LR
 - 위치: `pintos/vm/vm.c`의 `vm_do_claim_page()`
 - 위치: `pintos/threads/mmu.c` 또는 `pintos/threads/pml4.h`의 `pml4_set_page()`
 
+### 4.4 기능 D: 페이지 폴트에서 claim으로 연결
+#### 개념 설명
+CPU가 접근했는데 PTE가 비어 있으면(not-present) 페이지 폴트가 발생합니다. 진입 함수는 폴트가 VM이 처리할 만한 접근인지 판별한 뒤, 해당 user va를 기준으로 SPT 조회 및 `vm_claim_page` 경로를 호출해 lazy/uninit 포함 동일 진입점으로 묶습니다.
+
+#### 시퀀스 및 흐름
+```mermaid
+sequenceDiagram
+  participant EX as exception.c
+  participant TH as vm_try_handle_fault
+  participant CP as vm_claim_page
+  participant SPT as SPT(hash)
+  participant DC as vm_do_claim_page
+
+  EX->>TH: fault_addr, user, write, not_present
+  alt VM이 처리할 접근 아님
+    TH-->>EX: false
+  else 처리 시도(not_present 등)
+    TH->>CP: vm_claim_page(정규화 va)
+    CP->>SPT: spt_find_page
+    alt page 없음
+      CP-->>TH: false
+    else page 있음
+      CP->>DC: vm_do_claim_page(page)
+      DC-->>CP: bool
+      CP-->>TH: bool
+    end
+  end
+  TH-->>EX: true 성공 / false 실패
+```
+
+```mermaid
+flowchart TD
+  FAULT[page fault] --> ENTRY[vm_try_handle_fault]
+  ENTRY --> CHECK{접근 검증}
+  CHECK -- 실패 --> FAIL[false]
+  CHECK -- not_present 등 --> CLAIM[vm_claim_page]
+  CLAIM --> FIND[spt_find_page]
+  FIND -- NULL --> FAIL
+  FIND -- page --> DO[vm_do_claim_page]
+  DO --> OK{성공?}
+  OK -- 예 --> RET[true]
+  OK -- 아니오 --> FAIL
+```
+
+1. `exception.c`가 fault 주소와 `user`/`write`/`not_present`를 넘겨 `vm_try_handle_fault`를 호출한다.
+2. user 주소·팀 규약에 맞게 검증하고, not-present면 `pg_round_down` 등 **§5.3과 동일한 va 규약**으로 `vm_claim_page`에 넘긴다.
+3. `vm_claim_page`가 SPT에서 page를 찾으면 `vm_do_claim_page`로 §4.2·§4.3 흐름(frame·swap_in·pml4)을 탄다.
+4. write-protect·stack growth 등은 별도 분기로 두고, 본 절은 **present가 아닌 fault → claim** 축을 분명히 한다.
+
+#### 구현 주석 (보면 되는 함수/구조체)
+- 위치: `pintos/vm/vm.c`의 `vm_try_handle_fault()`
+- 폴트 → SPT/`vm_claim_page` 연계는 `threads/vaddr.h`의 `pg_round_down()`·`is_user_vaddr()` 등과 호출 순서 맞춤
+- 연관 호출부: `pintos/userprog/exception.c`의 page fault 처리에서 `vm_try_handle_fault()` 호출 확인
+
 ## 5. 구현 주석 (위치별 정리)
 ### 5.1 `vm_get_frame()`
 - 위치: `pintos/vm/vm.c`의 `vm_get_frame()`
@@ -128,6 +185,19 @@ flowchart LR
 구현 체크 순서:
 1. 입력 `va` 정규화 정책을 `spt_find_page`와 맞춘다.
 2. lazy/uninit·swap된 page 모두 같은 진입점으로 들어오는지 확인한다.
+
+### 5.4 `vm_try_handle_fault()`
+- 위치: `pintos/vm/vm.c`의 `vm_try_handle_fault()`
+- 역할: 페이지 폴트 발생 시 접근 검증 후, 처리 가능하면 `vm_claim_page()`(또는 동일 목적 진입점)로 넘긴다.
+- 규칙 1: `not_present` 등 폴트 유형별로 무한 폴트·잘못된 대응을 만들지 않는다.
+- 규칙 2: user 주소·권한 판별을 fault 인자와 맞춘다.
+- 규칙 3: SPT에는 없지만 합법인 구간은 stack growth 등 **별도 규약** 후 claim으로 이어진다면 그 분기 명시(팀 정책).
+- 금지 1: SPT 없는 접근을 조용히 성공 처리하지 않는다.
+
+구현 체크 순서:
+1. `pg_round_down`/user va 검증을 `vm_claim_page`·`spt_find_page`와 동일 규약으로 맞춘다.
+2. 적절한 경우 `vm_claim_page(fault_va)` 또는 정규화한 va로 호출한다.
+3. write-protect·COW는 팀별로 `vm_handle_wp` 등과 분리해 충돌 없이 처리한다(`07` 참고 가능).
 
 ## 6. 테스팅 방법
 - lazy load 기본 테스트

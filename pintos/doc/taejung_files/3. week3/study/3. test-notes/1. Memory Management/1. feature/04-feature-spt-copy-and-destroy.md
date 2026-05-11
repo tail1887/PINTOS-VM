@@ -8,7 +8,13 @@ VM에서는 주소 공간 정보가 pml4뿐 아니라 SPT에도 들어 있습니
 ### 무엇을 연결하는가 (기술 맥락)
 `pintos/vm/vm.c`의 `supplemental_page_table_copy()`, `supplemental_page_table_kill()`, `supplemental_page_table_init()`, `pintos/userprog/process.c`의 `process_fork()`/`process_exit()`, page type별 initializer/destroy hook을 연결합니다.
 ### 완성의 의미 (결과 관점)
-자식은 부모와 같은 유저 주소 공간을 관측하고, 종료 시 page/frame/swap/file 자원이 한 번씩만 정리됩니다.
+최종적으로는 자식이 부모와 같은 유저 메모리를 관측하고 fork/exit가 VM 메타데이터와 자원까지 일관되게 동작해야 합니다. 그중 **이 문서(04)가 담당하는 전제**는 SPT copy/kill 파이프라인과 타입별 page 수명입니다. **실제 같은 물리/가상 매핑(loaded 페이지 내용까지 동일 관측)** 은 **`06-feature-frame-allocation-and-claim.md`(frame·`vm_do_claim_page`·`pml4_set_page`)가 핵심**이고, **`05-feature-overview-frame-table.md`는 프레임/eviction 개요**, 자식 주소 공간 PTE는 **`process_fork` 등 `userprog/process.c` 경로**까지 포함한 이후 목표입니다(아래 「04 범위 vs 다음 단계」).
+
+### 이 문서(04) 범위 vs 다음 단계 (중요)
+
+- **04에서 우선 완료할 것**: `supplemental_page_table_init/copy/kill`, 부모 SPT 순회·타입별 새 `struct page` 생성(UNINIT/metadata 복사 포함)·복사 실패 롤백·`kill` 경로에서 type별 destroy hook까지 **SPT/해시/수명**이 일관되게 동작하게 만드는 것.
+- **04 직후(다음 문서·코드 레이어)에서 할 것**: 이미 로드된(loaded) 페이지에 대해 **물리 프레임을 공유(COW)·복사하여 자식 사용자 주소 공간에서도 같은 내용이 관측**되도록 하려면, **`pml4`/PTE, 프레임 테이블, `vm_do_claim_page`, page fault 처리, fork 시 자식 페이지 테이블 구성**이 필요합니다. 문서·코드 기준으로는 **`06-feature-frame-allocation-and-claim.md`**에서 claim·`pml4_set_page`까지를 집중적으로 보고, **`05-feature-overview-frame-table.md`**는 같은 주제의 **개요(프레임 테이블·eviction 큰 그림)** 로 앞에 두면 된다. fork 직후 자식 주소 공간에 PTE가 어떻게 깔리는지는 **`pintos/userprog/process.c`의 `process_fork()`·주소 공간 복제**와 맞춘다.
+- 따라서 **`anon.c`/`file.c`의 fork용 duplicate 헬퍼** 등에서 **`frame`/PTE를 비워 두거나 TODO로 두는 것**은 04 단계 목표와 **모순되지 않으며**, “규칙 2(loaded 내용 동일)”의 **메모리·매핑 쪽 채우기는 명시적으로 다음 단계 과제**로 둔다.
 
 ## 2. 가능한 구현 방식 비교
 - 방식 A: fork에서 모든 page를 즉시 claim/copy
@@ -75,7 +81,7 @@ flowchart TD
 
 1. 부모 SPT의 hash entry를 순회한다.
 2. page type에 따라 새 page를 생성하고 필요한 metadata를 복사한다.
-3. loaded page는 자식 frame에도 동일한 내용을 보이게 만든다.
+3. loaded page가 **실제 사용자 주소 공간에서** 자식에게도 동일 내용으로 보이게 하려면 **06(claim·PTE)**·**`process_fork`/주소 공간**·page fault까지 연결해야 한다(05는 프레임/eviction 개요). 04에서는 SPT/metadata 쪽까지를 기본 범위로 둔다.
 #### 구현 주석 (보면 되는 함수/구조체)
 - 위치: `pintos/vm/vm.c`의 `supplemental_page_table_copy()`
 - 위치: `pintos/vm/uninit.c`, `pintos/vm/anon.c`, `pintos/vm/file.c`의 type별 initializer
@@ -104,7 +110,7 @@ flowchart LR
 - 위치: `pintos/vm/vm.c`의 `supplemental_page_table_copy()`
 - 역할: 부모 SPT의 모든 page를 자식 SPT에 재구성한다.
 - 규칙 1: writable, type, va 정보를 보존한다.
-- 규칙 2: 이미 loaded된 page는 내용도 복사하거나 COW 정책을 적용한다.
+- 규칙 2 (분할): 최종 과제에서는 이미 loaded된 page에 대해 물리 내용까지 동일하게(COW 또는 복사). **단, 04 문서 단계의 DoD에서는 SPT/metadata 복제와 헬퍼 골격까지만 필수로 하고**, 프레임 공유·`memcpy`/자식 `pml4` 매핑은 **06(핵심)·`process_fork`·page fault** 등에서 완결한다고 본다(05는 개요).
 - 금지 1: 부모 `struct page` 포인터를 자식 SPT에 그대로 넣지 않는다.
 
 구현 체크 순서:
