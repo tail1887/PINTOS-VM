@@ -203,7 +203,7 @@ vm_dealloc_page (struct page *page) {
 }
 
 /* Claim the page that allocate on VA. */
-//spt에서 page를 찾고, vm_do_claim_page에 전달하는 함수
+//spt에서 page를 찾고, vm_do_claim_page에 전달하는 함수, va만 알고있을 때 사용
 bool
 vm_claim_page (void *va) {
 	if (va == NULL || is_kernel_vaddr(va)){
