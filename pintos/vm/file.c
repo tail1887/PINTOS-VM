@@ -20,12 +20,17 @@ vm_file_init (void) {
 }
 
 /* Initialize the file backed page */
+//uninit page를 file-backed page로 바꾸고 file용 동작 함수표를 연결하는 함수
 bool
 file_backed_initializer (struct page *page, enum vm_type type, void *kva) {
+	UNUSED(type);
+	UNUSED(kva);
+
 	/* Set up the handler */
 	page->operations = &file_ops;
 
-	struct file_page *file_page = &page->file;
+	//struct file_page *file_page = &page->file;
+	return true;
 }
 
 /* Swap in the page by read contents from the file. */
