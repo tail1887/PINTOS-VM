@@ -22,3 +22,4 @@
 - frame은 전역 자원, page는 process별 주소 공간 자원으로 분리해 쓴다.
 - anonymous page는 swap, file-backed page는 file write-back/reload 대상이다.
 - eviction 전후 pml4 mapping 제거를 반드시 기록한다.
+- deep-dive 문서 5장은 `규칙=불변식`, `구현 체크 순서=실제 구현 단계`로 분리해 작성한다.

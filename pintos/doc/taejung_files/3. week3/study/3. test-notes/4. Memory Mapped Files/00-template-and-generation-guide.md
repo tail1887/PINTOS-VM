@@ -27,3 +27,4 @@
 - mmap은 file-backed lazy page 등록 기능으로 설명한다.
 - fd close와 mapping 수명은 분리해서 기록한다.
 - dirty page write-back 범위는 실제 file bytes 기준으로 쓴다.
+- deep-dive 문서 5장은 `규칙=불변식`, `구현 체크 순서=실제 구현 단계`로 분리해 작성한다.

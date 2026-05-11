@@ -62,3 +62,12 @@ sequenceDiagram
 1. `02-feature-mmap-validation-and-registration.md`
 2. `03-feature-file-backed-page-load.md`
 3. `04-feature-munmap-and-write-back.md`
+
+---
+
+## 7) 구현 전 체크 질문
+
+- mmap addr, length, fd, overlap 실패 조건을 등록 전에 모두 검사하는가?
+- fd close와 mmap page의 file 수명을 분리했는가?
+- partial page의 zero fill과 write-back 길이를 구분하는가?
+- munmap과 process exit에서 같은 page를 중복 정리하지 않는가?

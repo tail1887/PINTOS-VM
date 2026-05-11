@@ -26,3 +26,4 @@
 - load 시점과 fault 시점을 반드시 분리한다.
 - aux에는 fault 시점까지 필요한 file/ofs/read_bytes/zero_bytes/writable 정보를 남긴다.
 - anonymous page와 file-backed page의 eviction 정책을 섞지 않는다.
+- deep-dive 문서 5장은 `규칙=불변식`, `구현 체크 순서=실제 구현 단계`로 분리해 작성한다.
