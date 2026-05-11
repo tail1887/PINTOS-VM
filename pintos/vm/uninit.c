@@ -43,7 +43,7 @@ uninit_new (struct page *page, void *va, vm_initializer *init,
 }
 
 /* Initalize the page on first fault */
-//uninit page를 anon/file page로 바꾸고, 필요하면 실제 데이터를 frame에 로드
+//매핑이 끝난 뒤, uninit page를 anon/file page로 바꾸고, 필요하면 실제 데이터를 frame에 로드
 static bool
 uninit_initialize (struct page *page, void *kva) {
 	struct uninit_page *uninit = &page->uninit;
