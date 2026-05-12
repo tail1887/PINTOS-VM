@@ -1124,8 +1124,6 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 		size_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
 		size_t page_zero_bytes = PGSIZE - page_read_bytes;
 		
-		aux = create_segment_aux(file, ofs, page_read_bytes, page_zero_bytes);
-
 		/* Get a page of memory. */
 		uint8_t *kpage = palloc_get_page (PAL_USER);
 		if (kpage == NULL)
@@ -1193,13 +1191,46 @@ install_page (void *upage, void *kpage, bool writable) {
  * If you want to implement the function for only project 2, implement it on the
  * upper block. */
 
+ struct segment_aux {
+	struct file *file;
+	off_t ofs;
+	uint64_t read_bytes;
+	uint64_t zero_bytes;
+};
+
+static struct segment_aux *
+create_segment_aux(struct file *file, off_t ofs, uint64_t read_bytes, uint64_t zero_bytes) {
+	//내부 필수 필드: file, ofs, read_bytes, zero_bytes. 
+	struct segment_aux *aux_ptr = palloc_get_page(0);
+	if (aux_ptr == NULL)
+		return NULL;
+
+	aux_ptr->file = file;
+	aux_ptr->ofs = ofs;
+	aux_ptr->read_bytes = read_bytes;
+	aux_ptr->zero_bytes = zero_bytes;
+	return aux_ptr;
+}
+
+static void free_segment_aux(void *aux) {
+	if (aux != NULL)
+		palloc_free_page(aux);
+}
+
 static bool
 lazy_load_segment (struct page *page, void *aux) {
-	/* TODO: Load the segment from the file */
-	/* TODO: This called when the first page fault occurs on address VA. */
-	/* TODO: VA is available when calling this function. */
 
+	struct segment_aux *a = aux;	
+	void *kva = page->frame->kva;
 
+	off_t read_bytes = file_read_at(a->file, kva, (off_t)a->read_bytes, a->ofs);
+	if (read_bytes != a->read_bytes){
+		free_segment_aux(a);
+		return false;
+	}
+	memset(kva + read_bytes, 0, a->zero_bytes);
+	free_segment_aux(a);
+	return true;
 }
 
 /* Loads a segment starting at offset OFS in FILE at address
@@ -1232,14 +1263,21 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 
 		/* TODO: Set up aux to pass information to the lazy_load_segment. */
 		void *aux = NULL;
-		if (!vm_alloc_page_with_initializer (VM_ANON, upage,
-					writable, lazy_load_segment, aux))
+		
+		aux = create_segment_aux (file, ofs, page_read_bytes, page_zero_bytes);
+		if (aux == NULL)
 			return false;
 
+		if (!vm_alloc_page_with_initializer (VM_FILE, upage,
+					writable, lazy_load_segment, aux)){
+			free_segment_aux(aux);
+			return false;
+		}
 		/* Advance. */
 		read_bytes -= page_read_bytes;
 		zero_bytes -= page_zero_bytes;
 		upage += PGSIZE;
+		ofs += page_read_bytes;
 	}
 	return true;
 }
