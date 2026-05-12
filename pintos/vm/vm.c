@@ -1,6 +1,7 @@
 /* vm.c: Generic interface for virtual memory objects. */
 
 #include "threads/malloc.h"
+#include <debug.h>
 #include "vm/vm.h"
 #include "vm/inspect.h"
 #include "threads/mmu.h"
@@ -82,6 +83,9 @@ spt_find_page (struct supplemental_page_table *spt, void *va) {
 /* Insert PAGE into spt with validation. */
 bool
 spt_insert_page (struct supplemental_page_table *spt, struct page *page) {
+	if (pg_ofs (page->va) != 0)
+		return false;
+
 	return hash_insert (&spt->hash, &page->elem) == NULL;
 }
 
@@ -180,7 +184,8 @@ vm_do_claim_page (struct page *page) {
 /* Initialize new supplemental page table */
 void
 supplemental_page_table_init (struct supplemental_page_table *spt) {
-	hash_init (&spt->hash, page_hash, page_less, NULL);
+	if (!hash_init (&spt->hash, page_hash, page_less, NULL))
+		PANIC ("supplemental_page_table_init: hash_init failed");
 }
 
 /* Copy supplemental page table from src to dst */
@@ -198,17 +203,16 @@ supplemental_page_table_kill (struct supplemental_page_table *spt UNUSED) {
 
 /* Returns a hash value for a page based on its user virtual address. */
 static uint64_t
-page_hash (const struct hash_elem *e, void *aux) {
-	UNUSED (aux);
-	struct page *page = hash_entry (e, struct page, elem);
+page_hash (const struct hash_elem *e, void *aux UNUSED) {
+	/* 이 경로로는 쓰기가 불가능하다는 걸 표시하기 위해 const를 사용. */
+	const struct page *page = hash_entry (e, struct page, elem);
 	return hash_bytes (&page->va, sizeof page->va);
 }
 
 /* Orders pages by user virtual address inside the SPT hash buckets. */
 static bool
-page_less (const struct hash_elem *a, const struct hash_elem *b, void *aux) {
-	UNUSED (aux);
-	struct page *page_a = hash_entry (a, struct page, elem);
-	struct page *page_b = hash_entry (b, struct page, elem);
+page_less (const struct hash_elem *a, const struct hash_elem *b, void *aux UNUSED) {
+	const struct page *page_a = hash_entry (a, struct page, elem);
+	const struct page *page_b = hash_entry (b, struct page, elem);
 	return page_a->va < page_b->va;
 }
