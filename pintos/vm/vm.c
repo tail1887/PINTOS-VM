@@ -5,6 +5,8 @@
 #include "vm/vm.h"
 #include "vm/inspect.h"
 #include "threads/mmu.h"
+#include "threads/thread.h"
+
 
 /* Initializes the virtual memory subsystem by invoking each subsystem's
  * intialize codes. */
@@ -120,11 +122,21 @@ vm_evict_frame (void) {
  * space.*/
 static struct frame *
 vm_get_frame (void) {
+
 	struct frame *frame = NULL;
+	frame = malloc(sizeof(*frame));
+	ASSERT(frame != NULL);
 	/* TODO: Fill this function. */
+	frame->kva = palloc_get_page(PAL_USER);
+	if(frame->kva == NULL) {
+		free(frame);
+		frame = vm_evict_frame();
+	}
 
 	ASSERT (frame != NULL);
+	frame->page = NULL;
 	ASSERT (frame->page == NULL);
+
 	return frame;
 }
 
@@ -160,10 +172,12 @@ vm_dealloc_page (struct page *page) {
 
 /* Claim the page that allocate on VA. */
 bool
-vm_claim_page (void *va UNUSED) {
+vm_claim_page (void *va) {
 	struct page *page = NULL;
 	/* TODO: Fill this function */
-
+	struct supplemental_page_table *spt = &thread_current()->spt;
+	page = spt_find_page(spt, va);
+	
 	return vm_do_claim_page (page);
 }
 
@@ -171,13 +185,17 @@ vm_claim_page (void *va UNUSED) {
 static bool
 vm_do_claim_page (struct page *page) {
 	struct frame *frame = vm_get_frame ();
-
+	assert(frame != NULL);
 	/* Set links */
 	frame->page = page;
 	page->frame = frame;
 
 	/* TODO: Insert page table entry to map page's VA to frame's PA. */
+	void * upage = page->va;
+	void * kpage = pg_round_down(frame->kva);
 
+	assert(pml4_set_page(thread_current()->pml4, upage, kpage, page->writable));
+	
 	return swap_in (page, frame->kva);
 }
 
