@@ -65,27 +65,44 @@ sequenceDiagram
 
 ### 4.3 함수별 구현 주석 (고정안)
 
-#### `uninit_destroy` / `anon_destroy` / `file_backed_destroy`
+#### §4.3.0 (이 문서)
 
-**추상**
+[Merge 1 `00-서론.md`](../Merge%201%20-%20Frame%20Claim%20+%20Lazy%20Loading/00-%EC%84%9C%EB%A1%A0.md) §4.3.0과 동일. 타입별 destroy는 선형이 많아 **플로우차트 생략**해도 된다.
 
-```c
-/* Merge2-C: 페이지 타입별 부가 자원만 정리하고, 공통 해제(free(page))는 호출자(vm_dealloc_page)에 맡긴다. */
-```
+---
 
-**1단계 구체**
+#### `uninit_destroy` (`vm/uninit.c`)
 
-- uninit: 남아 있는 `aux`/초기화 정보 정리.
-- anon: frame 역참조/익명 페이지 자원 정리.
-- file-backed: dirty/write-back 정책은 D/후속 Merge와 충돌 없게 최소 정리.
+UNINIT이 **fault 없이 종료**될 때 남은 `aux` 등만 정리한다. **`free(page)`는 호출하지 않는다** — 호출자 `vm_dealloc_page`가 수행.
 
-**2단계 구체**
+**흐름**
 
-1. destroy 진입 시 타입에 맞는 구조체 포인터를 얻는다.
-2. 이미 해제된 자원은 다시 해제하지 않도록 가드한다.
-3. 필요 시 `page->frame = NULL` 등 링크 정리.
-4. `return;` (메모리 자체 해제는 상위 호출자가 수행).
-5. **하지 않음**: SPT 순회, hash destroy 전체, 프로세스 종료 분기.
+1. `struct uninit_page *u = &page->uninit;` 남은 `aux`가 있으면 팀 규약대로 `palloc_free_page`/`free` 등으로 해제.
+2. idempotent하게 두 번 호출돼도 안전하게.
+3. **하지 않음**: SPT 순회, `hash_destroy` 전체.
+
+---
+
+#### `anon_destroy` (`vm/anon.c`)
+
+anon이 붙잡은 **frame·swap 등 부가 자원**을 정리한다. `free(page)`는 호출자.
+
+**흐름**
+
+1. `page->frame` 등 링크를 끊을 때 double free가 나지 않게 가드.
+2. Merge 4에서 swap 슬롯 해제가 붙으면 여기 또는 `anon_swap_out`과 역할을 나눈다.
+3. **하지 않음**: SPT kill 루프 전체.
+
+---
+
+#### `file_backed_destroy` (`vm/file.c`)
+
+file-backed/mmap이 붙잡은 **파일 참조·dirty 정책**을 최소로 정리한다. write-back 세부는 D·Merge 3과 충돌 없게.
+
+**흐름**
+
+1. `struct file_page` 필드에 맞춰 `file_close`/`inode` 참조 등 팀 규약대로 정리.
+2. **하지 않음**: `supplemental_page_table_kill` 전체, mmap syscall 본문.
 
 ### 4.4 함수 간 연결 순서 (호출 체인)
 

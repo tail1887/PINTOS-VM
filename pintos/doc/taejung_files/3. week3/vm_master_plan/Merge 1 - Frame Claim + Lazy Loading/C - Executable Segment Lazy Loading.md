@@ -68,59 +68,93 @@ sequenceDiagram
 
 C는 **`load_segment`에서 page당 aux 생성 + SPT 등록**, **`lazy_load_segment`에서 실제 파일 바이트 채움**으로 고정한다.
 
+#### §4.3.0 이 문서에서의 적는 방식
+
+- 함수마다 **1. 2. 3. … 번호 흐름** 한 덩어리로 적는다. 추상만 코드 펜스로 따로 두는 방식은 쓰지 않는다.
+- 앞쪽 번호는 책임·맥락·호출 순서, 뒤쪽 번호는 조건·실제 API·실패·aux 해제처럼 리뷰할 디테일에 가깝게 둔다.
+- 코드에 남길 한 줄 주석이 필요하면, 아래 흐름 **1번 앞 문장**을 그대로 옮겨도 된다.
+- 각 함수마다 아래 **플로우차트**는 같은 절의 번호 흐름과 대응한다(6·9번 같은 “하지 않음”은 그림 밖 규칙으로만 둔다).
+- **플로우차트(B안)**: 이 문서는 루프·실패 분기가 분명한 두 함수에만 차트를 넣었다. 다른 문서에서는 같은 기준으로 **필요할 때만** 추가한다.
+
+---
+
 #### `load_segment` (`userprog/process.c`, `#ifdef VM`)
 
-**추상**
+Merge 1–C에서 이 함수는 **세그먼트를 페이지 단위로 쪼개 aux만 싣고 `vm_alloc_page_with_initializer`로 등록**한다. 파일 전체를 여기서 읽지 않는다.
 
-```c
-/* Merge1-C: FILE의 ofs~ 구간을 PGSIZE 단위로 나누고, 페이지마다 lazy_load_segment가 읽을 정보를 aux에 실어 vm_alloc_page_with_initializer만 호출한다. 즉시 file_read로 세그먼트 전체를 올리지 않는다. */
+**흐름**
+
+1. `while (read_bytes > 0 || zero_bytes > 0)`로 남은 구간이 없을 때까지 반복한다. 한 번에 **한 유저 페이지**만 다룬다.
+2. `page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE`, `page_zero_bytes = PGSIZE - page_read_bytes`로 이번 페이지의 “파일에서 읽을 길이”와 “같은 페이지 안 0으로 채울 길이”를 정한다(상위 `ASSERT` 전제와 맞물린다).
+3. `aux`에 `file`, `ofs`, 위 두 길이를 담는다. (`create_segment_aux` 등 팀 헬퍼, 또는 동등한 인라인 할당.) 필드 이름 예: `read_bytes`, `zero_bytes`. `aux == NULL`이면 즉시 `return false`.
+4. `vm_alloc_page_with_initializer (VM_FILE, upage, writable, lazy_load_segment, aux)`를 호출해 해당 `upage`를 lazy 등록한다. **`page_initializer`(예: `file_backed_initializer`)는 B의 `vm_alloc` 구현**이 타입에 맞게 연결한다. 실패 시 **이번에 만든 aux만 해제**하고 `return false` (남은 페이지 등록 중단).
+5. `read_bytes -= page_read_bytes`, `zero_bytes -= page_zero_bytes`, `upage += PGSIZE`, `ofs += page_read_bytes`로 다음 페이지로 넘어간다.
+6. **하지 않음 (C 경계)**: `pml4_set_page`, `vm_claim_page`, 세그먼트 전체를 한 번에 읽는 `file_read` / `file_read_at`, 유저 물리 슬롯을 여기서 직접 확보하기.
+
+**플로우차트**
+
+```mermaid
+flowchart TD
+  START([load_segment 진입])
+  W{1: while — read_bytes 또는 zero_bytes 남음?}
+  CALC["2: page_read_bytes / page_zero_bytes 계산"]
+  AUX{3: aux 생성 성공?}
+  ALLOC{4: vm_alloc_page_with_initializer VM_FILE 성공?}
+  FREE_AUX[이번 aux만 해제]
+  ADV["5: read_bytes·zero_bytes·upage·ofs 갱신"]
+  OK([return true])
+  FAIL([return false])
+
+  START --> W
+  W -->|아니오| OK
+  W -->|예| CALC --> AUX
+  AUX -->|아니오| FAIL
+  AUX -->|예| ALLOC
+  ALLOC -->|아니오| FREE_AUX --> FAIL
+  ALLOC -->|예| ADV --> W
 ```
 
-**1단계 구체**
-
-- 루프: `page_read_bytes`, `page_zero_bytes = PGSIZE - page_read_bytes` (스켈레톤 1226–1227행 패턴).
-- 매 페이지 `void *aux`에 `{ struct file *file, off_t page_ofs, size_t read_n, size_t zero_n }` 같은 구조체를 `malloc`해 넣거나 정적 풀.
-- `vm_alloc_page_with_initializer (타입, upage, writable, lazy_load_segment, aux)` — 타입은 **`VM_FILE` + `file_backed_initializer`** 권장; 스켈레톤의 `VM_ANON`은 과제에 맞게 교체.
-- `upage`, `ofs`, `read_bytes`, `zero_bytes` 갱신 후 다음 페이지.
-
-**2단계 구체**
-
-1. `while (read_bytes > 0 || zero_bytes > 0)` 유지.
-2. `page_read_bytes = min(read_bytes, PGSIZE);` `page_zero_bytes = PGSIZE - page_read_bytes` (zero_bytes가 크면 여러 페이지로 분할 주의 — 스켈레톤 ASSERT에 맞출 것).
-3. `aux = create_segment_aux (file, ofs, page_read_bytes, page_zero_bytes);`
-   - 코드에 함수가 없으면 `process.c`에 `static` 헬퍼로 추가하거나 이 줄을 인라인 `malloc + 필드 대입`으로 풀어서 구현한다.
-   - 내부 필수 필드: `file`, `ofs`, `read_bytes`, `zero_bytes`.
-   - `aux == NULL`이면 즉시 `return false;`.
-4. `if (!vm_alloc_page_with_initializer (VM_FILE, upage, writable, lazy_load_segment, aux)) return false;`
-5. `read_bytes -= …; zero_bytes -= …; upage += PGSIZE; ofs += page_read_bytes;`
-6. **하지 않음**: `palloc`, `pml4_set_page`, `vm_claim_page`, 전 세그먼트 `file_read`.
+위 그림에 없는 **6번(하지 않음)**은 이 함수 안에서 하지 말아야 할 일의 목록이다.
 
 ---
 
 #### `lazy_load_segment` (`userprog/process.c`)
 
-**추상**
+Merge 1–C에서 이 함수는 **이미 claim된 `page->frame->kva`에만** 파일 바이트를 읽어 넣고, aux가 말해 주는 만큼 뒤를 0으로 채운다. SPT·프레임·PTE를 새로 만들지 않는다.
 
-```c
-/* Merge1-C: uninit_initialize 안에서 두 번째로 호출된다(init 콜백). 이미 vm_do_claim_page로 frame·PTE가 잡힌 뒤이므로 aux와 page->frame->kva로 파일 읽기·남은 바이트 0 채우기만 한다. */
+**흐름**
+
+1. 호출 위치는 **fault → claim → `swap_in` → `uninit_initialize`** 안이다. `vm/uninit.c`에서 **`page_initializer`가 먼저**, 그다음 **init 콜백(`lazy_load_segment`)** 순서와 맞출 것.
+2. `struct segment_aux *a = aux`로 캐스팅한다. `aux == NULL`이면 설계 오류.
+3. `void *kva = page->frame->kva`를 쓴다. `NULL`이면 claim 전 호출 등 설계 오류.
+4. `include/filesys/file.h`: `off_t file_read_at (struct file *file, void *buffer, off_t size, off_t start);` — 예: `off_t n = file_read_at (a->file, kva, (off_t) a->read_bytes, a->ofs);`
+5. `n != (off_t) a->read_bytes`이면 **§4.5 팀 규약대로 aux 해제** 후 `return false`.
+6. `memset ((uint8_t *) kva + n, 0, a->zero_bytes);` (성공 시 읽은 끝 뒤부터 zero.)
+7. 성공 시에도 **§4.5에 맞게 aux 해제** (`load_segment`와 해제 경로가 겹치지 않게).
+8. `return true`.
+9. **하지 않음 (C 경계)**: `vm_alloc_page_with_initializer`, `spt_insert_page`, `vm_do_claim_page`, 유저용 새 `palloc`로 별도 매핑 만들기.
+
+**플로우차트**
+
+```mermaid
+flowchart TD
+  PRE["1: 전제: fault→claim→swap_in→uninit_initialize 후 page_initializer 다음 init 콜백"]
+  CAST["2: a = aux"]
+  KVA["3: kva = page->frame->kva"]
+  READ["4: n = file_read_at file,buffer,size,start"]
+  CMP{5: n == 기대 read 길이?}
+  FREE1[aux 해제]
+  MEM["6: memset zero 영역"]
+  FREE2["7: aux 해제"]
+  OK([8: return true])
+  BAD([return false])
+
+  PRE --> CAST --> KVA --> READ --> CMP
+  CMP -->|아니오| FREE1 --> BAD
+  CMP -->|예| MEM --> FREE2 --> OK
 ```
 
-**1단계 구체**
-
-- 시그니처 `bool lazy_load_segment (struct page *page, void *aux)` — UNINIT가 아닌 시점: 앞 단계에서 `page_initializer`가 이미 `page`를 file/anon으로 바꿈.
-- 바이트 채울 주소: `uint8_t *kva = (uint8_t *) page->frame->kva` (claim 직후).
-- `aux`에서 `file`, `ofs`, 읽을 길이, zero 길이를 꺼내 `file_read_at` 또는 `file_seek`+`file_read`로 `kva`에 반영, 나머지 `memset(kva + read_n, 0, zero_n)`.
-
-**2단계 구체**
-
-1. `struct segment_aux *a = aux;` (팀 구조체 이름)
-2. `void *kva = page->frame->kva;` — NULL이면 설계 오류(claim 전에 불림).
-3. `off_t read_bytes = file_read_at (a->file, a->ofs, kva, a->read_n);` 가 `a->read_n`과 같지 않으면 `false`.
-4. `memset ((uint8_t *) kva + a->read_n, 0, a->zero_n);`
-5. `return true;`
-6. **하지 않음**: `vm_alloc_page_with_initializer`, `spt_insert_page`, `vm_do_claim_page`, 새 `palloc`로 유저 매핑 만들기.
-
-**호출 순서 상기**: `vm_do_claim_page` → `swap_in` → `uninit_initialize` → 먼저 `file_backed_initializer(page, type, kva)` 가 `page->operations`/`page->file` 세팅 → 그 다음 `lazy_load_segment(page, aux)` 가 파일 내용 채움(스켈레톤 `uninit_initialize` 순서와 일치시킬 것).
+**9번(하지 않음)**은 위 경로 밖에서 해서는 안 되는 작업 목록이다.
 
 ### 4.4 함수 간 연결 순서 (호출 체인)
 
@@ -131,13 +165,15 @@ C는 **`load_segment`에서 page당 aux 생성 + SPT 등록**, **`lazy_load_segm
 
 ### 4.5 실패 처리/롤백 규칙
 
-- `vm_alloc_page_with_initializer` 실패 시 즉시 `false` 반환하고 남은 세그먼트 등록을 중단한다.
-- `lazy_load_segment`에서 `file_read_at` 결과가 기대 길이보다 작으면 `false`.
+- `vm_alloc_page_with_initializer` 실패 시: **이번에 만든 aux만 해제**한 뒤 즉시 `false`, 남은 페이지 등록은 중단한다(§4.3 `load_segment` **흐름 4**와 동일).
+- `lazy_load_segment`에서 `file_read_at` 결과가 기대 길이보다 작으면 `false`(aux는 §4.3 `lazy_load_segment` **흐름 5·7** 및 아래 단일화 규칙에 맞게 해제).
 - `lazy_load_segment`는 실패 시에도 새 `palloc`/새 매핑 생성 시도를 하지 않는다.
-- aux 해제 책임은 팀 규약으로 고정하되, `load_segment`와 `lazy_load_segment` 중 한쪽만 담당하도록 단일화한다.
+- aux 해제 책임은 팀 규약으로 고정하되, `load_segment`와 `lazy_load_segment` 중 **경로가 겹치지 않게** 단일화한다(성공·실패·등록 실패 각각 한 번만 해제).
 
 ### 4.6 완료 체크리스트
 
+- §4.3.0 방식대로 `load_segment` / `lazy_load_segment` 구현 주석을 **번호 흐름**으로 적는다(추상 전용 코드 펜스 없음).
+- §4.3 각 함수의 **플로우차트**가 같은 절의 **번호 흐름**과 대응한다.
 - `load_segment` 루프에서 page 단위 aux가 생성된다.
 - `VM_FILE` 타입으로 SPT 등록이 이루어진다.
 - 첫 fault에서 `lazy_load_segment`가 호출되고 `kva`를 채운다.

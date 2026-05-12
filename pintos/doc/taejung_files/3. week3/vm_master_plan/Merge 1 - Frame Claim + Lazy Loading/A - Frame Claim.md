@@ -79,139 +79,138 @@ sequenceDiagram
 
 `A`는 **frame 확보 → `page`↔`frame` 연결 → `pml4_set_page` → `swap_in(page, kva)`** 까지다.
 
+#### §4.3.0 (이 문서)
+
+[Merge 1 `00-서론.md`](00-%EC%84%9C%EB%A1%A0.md) §4.3.0과 동일. **플로우차트(B안)**: fault·SPT miss·claim 실패처럼 분기가 두드러지는 함수만 아래에 둔다.
+
+---
+
 #### `page_fault` (`userprog/exception.c`)
 
-**추상**
+Merge 1–A에서 이 함수는 **fault 주소·원인 비트를 뽑아 `vm_try_handle_fault`에 넘기고**, 복구되면 그대로 return 한다.
 
-```c
-/* Merge1-A: fault_addr·원인(not_present/write/user)만 꺼낸 뒤 vm_try_handle_fault에 넘긴다. true면 복구 완료로 그대로 return. false면 기존 kill/exit 경로. */
+**흐름**
+
+1. `fault_addr = (void *) rcr2();` 후 `intr_enable()`.
+2. `f->error_code`의 `PF_P`, `PF_W`, `PF_U`로 `not_present`, `write`, `user`를 정한다.
+3. `#ifdef VM`에서만 `vm_try_handle_fault(f, fault_addr, user, write, not_present)` 호출한다.
+4. `true`이면 `return` — 같은 유저 명령을 재실행하기 위함이다.
+5. Merge 1 범위에서 **`vm_try_handle_fault` 안에 스택 growth·kernel fault 확장 정책을 새로 넣지 않는다**(Merge 2와 분리).
+
+**플로우차트**
+
+```mermaid
+flowchart TD
+  A([page_fault]) --> B[fault_addr error_code 파싱]
+  B --> C{VM 빌드?}
+  C -->|아니오| K[기존 kill 경로]
+  C -->|예| D{vm_try_handle_fault 성공?}
+  D -->|예| E([return])
+  D -->|아니오| K
 ```
-
-**1단계 구체**
-
-- `fault_addr = (void *) rcr2();` 후 `intr_enable()`.
-- `f->error_code`에서 `PF_P`, `PF_W`, `PF_U` 비트로 `not_present`, `write`, `user` 결정.
-- `#ifdef VM`에서만 `vm_try_handle_fault(f, fault_addr, user, write, not_present)` 호출.
-
-**2단계 구체**
-
-1. `not_present`, `write`, `user` 플래그 계산 (스켈레톤 139–142행 근처).
-2. `if (vm_try_handle_fault (...)) return;` — 성공 시 유저 명령 재실행을 위해 인터럽트 리턴으로 복귀.
-3. Merge1 범위에서는 **`vm_try_handle_fault` 내부에 스택 growth·kernel fault 정책을 새로 넣지 않음**(Merge2·예외 정책과 분리).
 
 ---
 
 #### `vm_try_handle_fault` (`vm/vm.c`)
 
-**추상**
+Merge 1–A에서 이 함수는 **유효한 lazy fault이면** `spt_find_page`로 `page`를 찾아 **`vm_do_claim_page`만** 호출한다. SPT miss 시 스택 확장·`vm_stack_growth`는 Merge 2 전용이다.
 
-```c
-/* Merge1-A: 유효한 lazy fault면 SPT에서 page를 찾아 vm_do_claim_page만 호출한다. SPT miss 스택 확장·vm_stack_growth는 Merge2 전용으로 여기 두지 않는다. */
+**흐름**
+
+1. `struct supplemental_page_table *spt = &thread_current()->spt;` `void *va = pg_round_down(addr);`
+2. 복구 불가 조건(커널 모드 fault 정책, 잘못된 write 등)이면 `return false` — 스켈레톤 TODO를 채운다.
+3. `page = spt_find_page(spt, va);`
+4. Merge 1에서는 `page == NULL`이면 `return false`로 둘 수 있다(stack은 Merge 2).
+5. `return vm_do_claim_page(page);` — `page` 없이 claim을 호출하면 안 된다.
+
+**플로우차트**
+
+```mermaid
+flowchart TD
+  A([vm_try_handle_fault]) --> B{복구 불가?}
+  B -->|예| F([return false])
+  B -->|아니오| C[spt_find_page]
+  C --> D{page NULL?}
+  D -->|예| F
+  D -->|아니오| E[vm_do_claim_page]
+  E --> G([return bool])
 ```
-
-**1단계 구체**
-
-- `struct supplemental_page_table *spt = &thread_current ()->spt;`
-- `void *va = pg_round_down (addr);`
-- `page = spt_find_page (spt, va)` — NULL이면 Merge1에서는 보통 실패 처리(Merge2에서 stack 후보로 확장).
-- 쓰기 보호/WP, 잘못된 접근 등은 스켈레톤의 `vm_handle_wp` 등과 분리해 조기 `false`.
-
-**2단계 구체**
-
-1. 복구 불가 조건(커널 모드 fault 정책, 잘못된 write 등)이면 `return false` — **스켈레톤 TODO 채우기**.
-2. `page = spt_find_page (&thread_current ()->spt, pg_round_down (addr));`
-3. `if (page == NULL) return false;` — Merge1 완성 전까지 stack은 미구현이어도 됨.
-4. `return vm_do_claim_page (page);` — **스켈레톤이 `page` 없이 claim을 호출하면 안 됨**(반드시 위에서 조회).
 
 ---
 
-#### `spt_find_page` (`vm/vm.c`) — `vm_claim_page`와 짝
+#### `spt_find_page` (`vm/vm.c`)
 
-**추상**
+`vm_claim_page`와 짝을 이룬다. **VA를 페이지 정렬한 키로 SPT 해시에서 `struct page*`를 찾는다.** frame 매핑 여부와 무관하다.
 
-```c
-/* Merge1-A: VA를 내림 정렬한 키로 spt->hash에서 struct page*를 찾는다. frame 유무와 무관하다. */
-```
+**흐름**
 
-**1단계 구체**
-
-- `va = pg_round_down (va);` 후 임시 `struct page temp; temp.va = va;`
-- `hash_find (&spt->hash, &temp.elem)` → `hash_entry (..., struct page, elem)`.
-
-**2단계 구체**
-
-1. `temp.va = pg_round_down (va);`
-2. `e = hash_find (&spt->hash, &temp.elem);`
-3. `return e == NULL ? NULL : hash_entry (e, struct page, elem);`
+1. `va = pg_round_down(va);`
+2. 임시 `struct page temp; temp.va = va;`
+3. `hash_find(&spt->hash, &temp.elem)` → 있으면 `hash_entry(e, struct page, elem)` 반환, 없으면 `NULL`.
 
 ---
 
 #### `vm_get_frame` (`vm/vm.c`)
 
-**추상**
+Merge 1–A에서 **`PAL_USER`로 물리 슬롯을 하나 잡아 `struct frame`으로 감싼다.** 풀 고갈 시 `vm_evict_frame`은 Merge 4에서 연결한다.
 
-```c
-/* Merge1-A: PAL_USER로 palloc한 kva를 struct frame에 넣고 반환한다. 풀 고갈 시 vm_evict_frame은 Merge4에서 연결—여기서는 NULL 반환으로 두지 말고 스켈레톤 ASSERT 전제에 맞춰 한 슬롯을 확보하는 최소 구현 또는 스텁 분기만 명시. */
+**흐름**
+
+1. `palloc_get_page(PAL_USER)` (필요 시 `PAL_ZERO`). 실패 시 Merge 4의 eviction 경로 또는 팀 정책대로 처리한다.
+2. `struct frame *f = malloc(sizeof *f);` `f->kva = kpage;` `f->page = NULL;`
+3. 팀 규약대로 **전역 `frame_table`**에 등록하면 Merge 4 victim 탐색에 역참조할 수 있다.
+4. `ASSERT(frame != NULL); ASSERT(frame->page == NULL);` 만족 후 `return frame`.
+
+**플로우차트**
+
+```mermaid
+flowchart TD
+  A([vm_get_frame]) --> B[palloc PAL_USER]
+  B --> C{kva NULL?}
+  C -->|예| D[Merge4 eviction 또는 false]
+  C -->|아니오| E[malloc frame 채움]
+  E --> F([return frame])
 ```
-
-**1단계 구체**
-
-- `palloc_get_page (PAL_USER)` — 필요 시 `PAL_ZERO`.
-- `struct frame *f = malloc (sizeof *f); f->kva = kpage; f->page = NULL;`
-- 팀이 쓰면 **전역 `frame_table`**에 등록해 victim 탐색 시 역참조(Merge4).
-
-**2단계 구체**
-
-1. `void *kva = palloc_get_page (PAL_USER);`
-2. `if (kva == NULL) { ... Merge4: vm_evict_frame ... }` — Merge1에서는 **eviction 없이** 실패 처리만 할 수도 있음(테스트 제약에 따름).
-3. `frame->kva = kva; frame->page = NULL;`
-4. `ASSERT (frame != NULL); ASSERT (frame->page == NULL);` 만족 후 `return frame`.
 
 ---
 
 #### `vm_claim_page` (`vm/vm.c`)
 
-**추상**
+유저 VA만 알 때 **SPT로 `struct page*`를 얻어 `vm_do_claim_page`에 위임한다.** `lazy_load_segment`는 호출하지 않는다.
 
-```c
-/* Merge1-A: 유저 VA만 알 때 SPT로 struct page*를 얻어 vm_do_claim_page에 위임한다. lazy_load_segment는 호출하지 않는다. */
-```
+**흐름**
 
-**1단계 구체**
-
-- `page = spt_find_page (&thread_current ()->spt, pg_round_down (va));`
-- NULL이면 `false`.
-
-**2단계 구체**
-
-1. `struct page *p = spt_find_page (&thread_current ()->spt, pg_round_down (va));`
-2. `if (p == NULL) return false;`
-3. `return vm_do_claim_page (p);`
+1. `p = spt_find_page(&thread_current()->spt, pg_round_down(va));`
+2. `p == NULL`이면 `return false`.
+3. `return vm_do_claim_page(p);`
 
 ---
 
 #### `vm_do_claim_page` (`vm/vm.c`)
 
-**추상**
+**`vm_get_frame` → 링크 → `pml4_set_page` → `swap_in(page, kva)`** 한 덩어리. 파일 읽기·UNINIT 해체는 `swap_in` 체인(B/C).
 
-```c
-/* Merge1-A: vm_get_frame → frame/page 링크 → pml4_set_page(유저VA→kva) → swap_in(page, kva). 파일 읽기·UNINIT 해체는 swap_in 체인(B/C). */
+**흐름**
+
+1. `frame = vm_get_frame();` 실패 시 `return false`.
+2. `frame->page = page;` `page->frame = frame;`
+3. `pml4_set_page(thread_current()->pml4, page->va, frame->kva, page->writable)` 실패 시 `return false` — 이미 매핑 등.
+4. `return swap_in(page, frame->kva);` — UNINIT이면 `uninit_initialize` 등으로 이어질 수 있다.
+5. **하지 않음 (A 경계)**: `uninit_new`, `file_read` 직접, `lazy_load_segment` 직접.
+
+**플로우차트**
+
+```mermaid
+flowchart TD
+  A([vm_do_claim_page]) --> B[vm_get_frame]
+  B --> C{성공?}
+  C -->|아니오| Z([return false])
+  C -->|예| D[frame과 page 링크]
+  D --> E{pml4_set_page}
+  E -->|실패| Z
+  E -->|성공| F[swap_in]
+  F --> G([return bool])
 ```
-
-**1단계 구체**
-
-- `struct frame *fr = vm_get_frame ();`
-- `fr->page = page; page->frame = fr;`
-- `pml4_set_page (thread_current ()->pml4, page->va, fr->kva, page->writable);` — 매핑 순서는 팀 정책에 따라 `swap_in` 전이 일반적.
-- `return swap_in (page, fr->kva);` — 매크로 전개.
-
-**2단계 구체**
-
-1. `struct frame *frame = vm_get_frame ();` 실패 시 `false`.
-2. `frame->page = page; page->frame = frame;`
-3. `if (!pml4_set_page (thread_current ()->pml4, page->va, frame->kva, page->writable)) return false;` — 이미 매핑된 경우 등 처리.
-4. `return swap_in (page, frame->kva);` → UNINIT이면 `uninit_initialize` → C면 `lazy_load_segment`까지 이어질 수 있음.
-5. **하지 않음**: `uninit_new`, `file_read` 직접 호출, `lazy_load_segment` 직접 호출.
 
 ### 4.4 함수 간 연결 순서 (호출 체인)
 

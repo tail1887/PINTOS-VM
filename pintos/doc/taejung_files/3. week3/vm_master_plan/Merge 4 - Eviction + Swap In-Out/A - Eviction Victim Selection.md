@@ -57,28 +57,35 @@ sequenceDiagram
 
 ### 4.3 함수별 구현 주석 (고정안)
 
+#### §4.3.0 (이 문서)
+
+[Merge 1 `00-서론.md`](../Merge%201%20-%20Frame%20Claim%20+%20Lazy%20Loading/00-%EC%84%9C%EB%A1%A0.md) §4.3.0과 동일.
+
+---
+
 #### `vm_get_victim` (`vm/vm.c`)
 
-**추상**
+Merge 4–A에서 이 함수는 **frame_table을 순회해 eviction 대상 frame 하나만 고른다.** 실제보내기는 B다.
 
-```c
-/* Merge4-A: frame_table을 순회해 eviction 대상 frame 1개를 고른다. 실제 내보내기는 B에서 수행한다. */
-```
-
-**1단계 구체**
-
-- frame마다 대응 page의 accessed/dirty 참고.
-- policy에 따라 통과/skip를 결정.
-- 반환값은 `struct frame *` 하나.
-
-**2단계 구체**
+**흐름**
 
 1. 순회 시작 위치(예: clock hand)를 가져온다.
-2. 각 frame의 page 접근 비트를 확인한다.
-3. 희생 조건 만족 시 해당 frame 반환.
-4. 미만족이면 비트 초기화/다음 후보로 이동.
-5. **하지 않음**: `swap_out`, `pml4_clear_page`, `page->frame = NULL`.
+2. 각 frame의 page **accessed/dirty** 등을 정책에 따라 본다.
+3. 희생 조건을 만족하면 그 `struct frame *`를 반환한다.
+4. 미만족이면 비트 초기화·다음 후보로 이동해 한 바퀴 돈다.
+5. **하지 않음 (A 경계)**: `swap_out`, `pml4_clear_page`, `page->frame = NULL` 직접.
 
+**플로우차트**
+
+```mermaid
+flowchart TD
+  A([vm_get_victim]) --> B[frame_table 순회]
+  B --> C{희생 조건?}
+  C -->|예| D([return frame])
+  C -->|아니오| E[다음 후보]
+  E --> F{한 바퀴 끝?}
+  F -->|아니오| B
+  F -->|예| G([NULL 또는 정책 실패])
 ### 4.4 함수 간 연결 순서 (호출 체인)
 
 1. `vm_get_frame`이 palloc 실패를 감지한다.

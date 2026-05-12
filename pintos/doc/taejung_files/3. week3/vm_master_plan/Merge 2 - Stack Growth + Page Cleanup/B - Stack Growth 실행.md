@@ -62,32 +62,38 @@ sequenceDiagram
 
 ### 4.3 함수별 구현 주석 (고정안)
 
+#### §4.3.0 (이 문서)
+
+[Merge 1 `00-서론.md`](../Merge%201%20-%20Frame%20Claim%20+%20Lazy%20Loading/00-%EC%84%9C%EB%A1%A0.md) §4.3.0과 동일.
+
+---
+
 #### `vm_stack_growth` (`vm/vm.c`)
 
-**추상**
+Merge 2–B에서 이 함수는 **fault 주소가 속한 페이지를 스택용 anon으로 SPT에 등록**하고, **즉시 claim**해 fault를 복구한다.
 
-```c
-/* Merge2-B: fault 주소 페이지를 스택용 anon page로 등록하고, 즉시 claim해서 fault를 복구한다. */
-```
+**흐름**
 
-**1단계 구체**
-
-- `va = pg_round_down (addr)` 계산.
-- stack limit 초과면 실패.
-- `vm_alloc_page_with_initializer (VM_ANON, va, true, ...)` 호출.
-- 성공 시 `vm_claim_page (va)`로 매핑 완료.
-
-**2단계 구체**
-
-1. `void *va = pg_round_down (addr);`
-2. `if (!within_stack_limit (va, USER_STACK, STACK_LIMIT)) return false;`
-   - `within_stack_limit`가 코드에 없으면 `vm.c` 내부 `static bool` 헬퍼로 추가한다.
-   - 판정식은 `USER_STACK - STACK_LIMIT <= va && va < USER_STACK`로 고정한다.
-   - 이 헬퍼는 “범위 검사만” 담당하고 할당/claim은 하지 않는다.
-3. `if (!vm_alloc_page_with_initializer (VM_ANON, va, true, NULL, NULL)) return false;`
-4. `if (!vm_claim_page (va)) return false;`
+1. `void *va = pg_round_down(addr);`
+2. `within_stack_limit(va, USER_STACK, STACK_LIMIT)` 등으로 한도 검사 — 실패 시 `return false`(아무 것도 등록하지 않음).
+3. `vm_alloc_page_with_initializer(VM_ANON, va, true, NULL, NULL)` — Merge 1 B와 동일 패턴. 실패 시 `return false`.
+4. `vm_claim_page(va)` — 실패 시 `spt_remove_page` 등 팀 규약으로 rollback.
 5. `return true;`
-6. **하지 않음**: SPT 전체 kill, 타입별 destroy, swap slot reclaim.
+6. **하지 않음 (B 경계)**: SPT 전체 kill, 타입별 destroy 본문, swap slot reclaim.
+
+**플로우차트**
+
+```mermaid
+flowchart TD
+  A([vm_stack_growth]) --> B[va pg_round_down]
+  B --> C{stack limit OK?}
+  C -->|아니오| Z([return false])
+  C -->|예| D{vm_alloc OK?}
+  D -->|아니오| Z
+  D -->|예| E{vm_claim_page OK?}
+  E -->|아니오| R[rollback SPT] --> Z
+  E -->|예| F([return true])
+```
 
 ### 4.4 함수 간 연결 순서 (호출 체인)
 

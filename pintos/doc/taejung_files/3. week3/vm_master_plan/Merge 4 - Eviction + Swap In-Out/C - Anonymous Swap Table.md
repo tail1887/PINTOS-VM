@@ -64,27 +64,44 @@ sequenceDiagram
 
 ### 4.3 함수별 구현 주석 (고정안)
 
-#### `vm_anon_init` / `anon_swap_out` / `anon_swap_in`
+#### §4.3.0 (이 문서)
 
-**추상**
+[Merge 1 `00-서론.md`](../Merge%201%20-%20Frame%20Claim%20+%20Lazy%20Loading/00-%EC%84%9C%EB%A1%A0.md) §4.3.0과 동일.
 
-```c
-/* Merge4-C: anon 페이지를 swap disk 슬롯에 저장/복원하는 경로를 구성한다. */
-```
+---
 
-**1단계 구체**
+#### `vm_anon_init` (`vm/anon.c`)
 
-- init에서 swap 디스크 핸들과 bitmap을 준비.
-- swap_out에서 빈 슬롯 할당 후 kva 내용을 디스크에 기록.
-- swap_in에서 저장된 슬롯을 읽어 kva로 복원 후 슬롯 해제.
+swap 디스크 핸들·bitmap 등 **anon swap 자료구조**를 초기화한다.
 
-**2단계 구체**
+**흐름**
 
-1. `vm_anon_init`에서 `swap_disk`와 bitmap 초기화.
-2. `anon_swap_out`에서 슬롯 할당 실패 시 `false`.
-3. 페이지 내용을 섹터 단위로 디스크에 기록 후 슬롯 번호 저장.
-4. `anon_swap_in`에서 슬롯 번호로 디스크 읽기 후 bitmap 반납.
-5. **하지 않음**: victim 선택 정책(A), PTE clear(B).
+1. `swap_disk` 열기/크기 확인 등 팀 규약.
+2. 슬롯 bitmap·락 초기화.
+
+---
+
+#### `anon_swap_out` (`vm/anon.c`)
+
+**빈 swap 슬롯을 할당**하고 `kva` 내용을 디스크에 기록한 뒤 **슬롯 번호를 page에 저장**한다.
+
+**흐름**
+
+1. 슬롯 할당 실패 시 `return false`.
+2. 페이지 내용을 섹터 단위로 기록 후 `page->anon` 등에 슬롯 번호 저장.
+3. **하지 않음**: victim 선택(A), PTE clear(B).
+
+---
+
+#### `anon_swap_in` (`vm/anon.c`)
+
+저장된 슬롯에서 **디스크를 읽어 `kva`로 복원**하고 bitmap으로 **슬롯 반납**한다.
+
+**흐름**
+
+1. 슬롯 번호로 디스크 읽기.
+2. 성공 시 bitmap 반납·필드 정리.
+3. **하지 않음**: victim 선택, PTE 삽입(claim 쪽).
 
 ### 4.4 함수 간 연결 순서 (호출 체인)
 

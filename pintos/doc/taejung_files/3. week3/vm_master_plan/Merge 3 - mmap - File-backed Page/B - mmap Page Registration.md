@@ -60,31 +60,37 @@ sequenceDiagram
 
 ### 4.3 함수별 구현 주석 (고정안)
 
+#### §4.3.0 (이 문서)
+
+[Merge 1 `00-서론.md`](../Merge%201%20-%20Frame%20Claim%20+%20Lazy%20Loading/00-%EC%84%9C%EB%A1%A0.md) §4.3.0과 동일.
+
+---
+
 #### `do_mmap` registration 루프
 
-**추상**
+Merge 3–B에서 이 루프는 **validation 통과 구간을 페이지 단위로** 끊어 **`VM_FILE` lazy page**로 SPT에 등록한다.
 
-```c
-/* Merge3-B: validation 통과 구간을 페이지 단위로 끊어 VM_FILE lazy page로 SPT에 등록한다. */
+**흐름**
+
+1. 루프마다 `page_read_bytes`, `page_zero_bytes` 계산(Merge 1 C와 같은 패턴).
+2. 페이지마다 aux에 파일 포인터·offset·길이를 채운다.
+3. `vm_alloc_page_with_initializer(VM_FILE, upage, writable, <init>, aux)` — `<init>`은 팀이 정한 mmap lazy 콜백(예: `lazy_load_segment`와 별도 이름 가능)으로 단일화.
+4. 실패 시 이미 등록한 구간을 팀 규약으로 rollback 후 실패 반환.
+5. 성공 시 `upage += PGSIZE`, `offset += page_read_bytes` 등으로 전진.
+6. **하지 않음 (B 경계)**: `file_read`, `vm_claim_page`, `pml4_set_page` 직접.
+
+**플로우차트**
+
+```mermaid
+flowchart TD
+  A([registration loop]) --> B{남은 구간?}
+  B -->|아니오| OK([return success])
+  B -->|예| C[aux 채움]
+  C --> D{vm_alloc 성공?}
+  D -->|아니오| R[rollback] --> F([return fail])
+  D -->|예| E[upage offset 갱신]
+  E --> B
 ```
-
-**1단계 구체**
-
-- `page_read_bytes`, `page_zero_bytes` 계산.
-- 페이지마다 aux를 생성하고 `vm_alloc_page_with_initializer` 호출.
-- 다음 VA/offset으로 전진.
-
-**2단계 구체**
-
-1. loop에서 현재 page 범위의 read/zero 길이를 계산.
-2. aux 객체에 파일 포인터와 offset/길이를 채움.
-3. `vm_alloc_page_with_initializer (VM_FILE, upage, writable, <init>, aux)` 호출.
-   - `<init>`은 코드에서 이름이 없다면 `lazy_load_segment`(또는 팀의 mmap lazy 콜백)으로 고정한다.
-   - 분업 문서 기준으로는 “fault 시 파일 내용을 채우는 콜백” 하나로 단일화해 사용한다.
-   - 헬퍼로 분리 시 `select_file_lazy_init()` 같은 `static` 함수가 `init` 함수 포인터만 반환하도록 제한한다.
-4. 실패 시 부분 등록 rollback 정책에 따라 정리 후 실패 반환.
-5. 성공 시 `upage += PGSIZE`, `offset += page_read_bytes`.
-6. **하지 않음**: `file_read`, `vm_claim_page`, `pml4_set_page`.
 
 ### 4.4 함수 간 연결 순서 (호출 체인)
 

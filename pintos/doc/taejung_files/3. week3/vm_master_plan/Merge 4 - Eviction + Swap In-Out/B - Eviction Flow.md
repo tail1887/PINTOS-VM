@@ -62,29 +62,37 @@ sequenceDiagram
 
 ### 4.3 함수별 구현 주석 (고정안)
 
+#### §4.3.0 (이 문서)
+
+[Merge 1 `00-서론.md`](../Merge%201%20-%20Frame%20Claim%20+%20Lazy%20Loading/00-%EC%84%9C%EB%A1%A0.md) §4.3.0과 동일.
+
+---
+
 #### `vm_evict_frame` (`vm/vm.c`)
 
-**추상**
+Merge 4–B에서 이 함수는 **victim frame의 page를 `swap_out`한 뒤** PTE와 page–frame 링크를 정리하고 **비워진 frame**을 반환한다.
 
-```c
-/* Merge4-B: victim frame의 page를 swap_out한 뒤 PTE와 page-frame 링크를 정리하고, 비워진 frame을 반환한다. */
-```
+**흐름**
 
-**1단계 구체**
-
-- victim의 `struct page *`를 얻는다.
-- 타입별 `swap_out(page)` 호출.
-- 성공 시 `pml4_clear_page`, 링크 해제.
-
-**2단계 구체**
-
-1. `struct frame *victim = vm_get_victim ();`
+1. `struct frame *victim = vm_get_victim();`
 2. `struct page *page = victim->page;`
-3. `if (!swap_out (page)) return NULL;`
-4. `pml4_clear_page (thread_current ()->pml4, page->va);`
-5. `page->frame = NULL; victim->page = NULL;`
+3. `if (!swap_out(page)) return NULL;` — 실패 시 PTE/링크를 건드리지 않는다.
+4. `pml4_clear_page(thread_current()->pml4, page->va);`
+5. `page->frame = NULL;` `victim->page = NULL;`
 6. `return victim;`
-7. **하지 않음**: 새 page 등록, stack growth 판별.
+7. **하지 않음 (B 경계)**: 새 page 등록, stack growth 판별.
+
+**플로우차트**
+
+```mermaid
+flowchart TD
+  A([vm_evict_frame]) --> B[vm_get_victim]
+  B --> C{swap_out 성공?}
+  C -->|아니오| Z([return NULL])
+  C -->|예| D[pml4_clear_page]
+  D --> E[링크 해제]
+  E --> F([return victim])
+```
 
 ### 4.4 함수 간 연결 순서 (호출 체인)
 

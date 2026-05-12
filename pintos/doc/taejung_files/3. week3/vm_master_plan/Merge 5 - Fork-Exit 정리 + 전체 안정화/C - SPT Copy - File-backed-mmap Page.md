@@ -58,27 +58,23 @@ sequenceDiagram
 
 ### 4.3 함수별 구현 주석 (고정안)
 
+#### §4.3.0 (이 문서)
+
+[Merge 1 `00-서론.md`](../Merge%201%20-%20Frame%20Claim%20+%20Lazy%20Loading/00-%EC%84%9C%EB%A1%A0.md) §4.3.0과 동일.
+
+---
+
 #### `supplemental_page_table_copy` file-backed/mmap 분기
 
-**추상**
+Merge 5–C에서 이 분기는 **부모 file-backed/mmap의 backing 메타**를 자식 SPT에 복제해 **fault 시 동일 경로**로 복구되게 한다.
 
-```c
-/* Merge5-C: 부모 file-backed/mmap 페이지의 backing 메타를 자식 SPT에 복제해 fault 시 동일 경로로 복구되게 한다. */
-```
+**흐름**
 
-**1단계 구체**
-
-- 부모 file-backed 엔트리에서 aux 필드를 추출.
-- 필요 시 `file_reopen`으로 자식 전용 참조를 만든다.
-- 자식에 동일 VA로 file-backed lazy page 등록.
-
-**2단계 구체**
-
-1. 부모 엔트리 타입이 file-backed/mmap인지 판별.
-2. backing file 참조와 offset/길이 정보를 복제.
-3. 자식 SPT에 대응 페이지 등록.
+1. 부모 엔트리가 file-backed/mmap인지 판별.
+2. `file`, offset, read/zero, `writable` 등 aux 추출 — 필요 시 `file_reopen`으로 자식 전용 참조.
+3. 자식에 동일 VA로 file-backed lazy page 등록.
 4. 실패 시 copy 실패 반환.
-5. **하지 않음**: 즉시 `file_read`/claim 강제.
+5. **하지 않음 (C 경계)**: 즉시 `file_read`, claim 강제.
 
 ### 4.4 함수 간 연결 순서 (호출 체인)
 

@@ -61,27 +61,34 @@ sequenceDiagram
 
 ### 4.3 함수별 구현 주석 (고정안)
 
+#### §4.3.0 (이 문서)
+
+[Merge 1 `00-서론.md`](../Merge%201%20-%20Frame%20Claim%20+%20Lazy%20Loading/00-%EC%84%9C%EB%A1%A0.md) §4.3.0과 동일.
+
+---
+
 #### `file_backed_swap_out` (`vm/file.c`)
 
-**추상**
+Merge 4–D에서 이 함수는 **file-backed victim을 내릴 때** dirty면 **backing file로 write-back**하고, clean이면 기록 없이 성공으로 넘긴다.
 
-```c
-/* Merge4-D: file-backed victim page를 내릴 때 dirty이면 backing file로 write-back하고, clean이면 기록 없이 내린다. */
-```
-
-**1단계 구체**
-
-- page의 dirty 상태를 확인.
-- dirty면 offset/read_bytes 기준으로 파일에 기록.
-- 이후 B 경로가 PTE/link 해제를 진행.
-
-**2단계 구체**
+**흐름**
 
 1. `struct file_page *fp = &page->file;`
 2. dirty 여부 조회(`pml4_is_dirty` 등).
-3. dirty면 `file_write_at (fp->file, page->frame->kva, fp->read_bytes, fp->ofs)` 수행.
-4. 성공/실패 결과 반환.
-5. **하지 않음**: victim 선택, PTE clear, swap bitmap 관리.
+3. dirty면 `file_write_at` 등으로 `fp`의 offset·길이 규약에 맞게 기록 — 실패 시 `false`.
+4. clean이면 write 생략·성공.
+5. **하지 않음 (D 경계)**: victim 선택, PTE clear, swap bitmap.
+
+**플로우차트**
+
+```mermaid
+flowchart TD
+  A([file_backed_swap_out]) --> B{dirty?}
+  B -->|아니오| C([return true])
+  B -->|예| D{file_write_at 성공?}
+  D -->|예| C
+  D -->|아니오| E([return false])
+```
 
 ### 4.4 함수 간 연결 순서 (호출 체인)
 
