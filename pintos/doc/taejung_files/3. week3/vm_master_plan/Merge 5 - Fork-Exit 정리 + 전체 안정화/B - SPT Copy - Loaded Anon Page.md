@@ -60,27 +60,34 @@ sequenceDiagram
 
 ### 4.3 함수별 구현 주석 (고정안)
 
+#### §4.3.0 (이 문서)
+
+[Merge 1 `00-서론.md`](../Merge%201%20-%20Frame%20Claim%20+%20Lazy%20Loading/00-%EC%84%9C%EB%A1%A0.md) §4.3.0과 동일.
+
+---
+
 #### `supplemental_page_table_copy` loaded anon 분기
 
-**추상**
+Merge 5–B에서 이 분기는 **부모의 로드된 anon page**를 자식에서 **새로 claim**한 뒤 **내용을 복사**해 독립 상태로 만든다.
 
-```c
-/* Merge5-B: 부모의 로드된 anon page를 자식에 새로 claim한 뒤 내용까지 복사해 독립 상태를 만든다. */
+**흐름**
+
+1. 부모 순회 중 loaded anon 분기 진입.
+2. 자식에 anon page 등록 후 `vm_claim_page(va)`.
+3. `memcpy(child_kva, parent_kva, PGSIZE)`.
+4. 실패 시 copy 실패 반환 — 부분 복사는 팀 규약으로 정리.
+5. **하지 않음 (B 경계)**: mmap/file-backed aux 복사(C).
+
+**플로우차트**
+
+```mermaid
+flowchart TD
+  A([loaded anon 분기]) --> B[자식 anon 등록]
+  B --> C{vm_claim_page?}
+  C -->|아니오| Z([copy 실패])
+  C -->|예| D[memcpy PGSIZE]
+  D --> E([성공])
 ```
-
-**1단계 구체**
-
-- 자식 쪽 동일 VA에 anon page 등록.
-- 자식 페이지를 claim해 frame 확보.
-- 부모 frame->kva 내용을 자식 frame->kva로 복사.
-
-**2단계 구체**
-
-1. 부모 엔트리 순회 중 loaded anon 분기 진입.
-2. 자식에 anon page 등록 후 `vm_claim_page (va)` 호출.
-3. `memcpy (child_kva, parent_kva, PGSIZE)` 수행.
-4. 실패 시 copy 실패 반환.
-5. **하지 않음**: mmap/file-backed aux 복사(C 분기 담당).
 
 ### 4.4 함수 간 연결 순서 (호출 체인)
 

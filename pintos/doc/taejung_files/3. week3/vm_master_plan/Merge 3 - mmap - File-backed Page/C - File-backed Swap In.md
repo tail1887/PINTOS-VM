@@ -61,28 +61,24 @@ sequenceDiagram
 
 ### 4.3 함수별 구현 주석 (고정안)
 
+#### §4.3.0 (이 문서)
+
+[Merge 1 `00-서론.md`](../Merge%201%20-%20Frame%20Claim%20+%20Lazy%20Loading/00-%EC%84%9C%EB%A1%A0.md) §4.3.0과 동일. `file_backed_swap_in`은 선형 단계가 많지 않아 **플로우차트 생략** 가능.
+
+---
+
 #### `file_backed_swap_in` (`vm/file.c`)
 
-**추상**
+Merge 3–C에서 이 함수는 **file-backed page의 backing file에서 필요한 바이트를 `kva`로 읽고**, 나머지를 **0으로 채운다.** (claim 이후 호출 전제.)
 
-```c
-/* Merge3-C: file-backed page의 backing file에서 필요한 바이트를 kva로 읽고, 나머지는 0으로 채운다. */
-```
-
-**1단계 구체**
-
-- `kva`를 목적지로 사용한다.
-- `file_read_at` 또는 동등 API로 `read_bytes`만큼 읽는다.
-- 나머지 `zero_bytes`는 `memset`으로 채운다.
-
-**2단계 구체**
+**흐름**
 
 1. `struct file_page *fp = &page->file;`
-2. `read_n = file_read_at (fp->file, kva, fp->read_bytes, fp->ofs);`
-3. `if (read_n != fp->read_bytes) return false;`
-4. `memset ((uint8_t *)kva + fp->read_bytes, 0, fp->zero_bytes);`
+2. `include/filesys/file.h`: `off_t file_read_at(struct file *file, void *buffer, off_t size, off_t start);` — 예: `read_n = file_read_at(fp->file, kva, fp->read_bytes, fp->ofs);`
+3. `read_n != fp->read_bytes`이면 `return false`.
+4. `memset((uint8_t *)kva + read_n, 0, fp->zero_bytes);` (성공 시 `read_n == fp->read_bytes`).
 5. `return true;`
-6. **하지 않음**: 새 페이지 등록, 새 frame 할당, munmap 처리.
+6. **하지 않음 (C 경계)**: 새 페이지 SPT 등록, 새 frame 할당, munmap.
 
 ### 4.4 함수 간 연결 순서 (호출 체인)
 

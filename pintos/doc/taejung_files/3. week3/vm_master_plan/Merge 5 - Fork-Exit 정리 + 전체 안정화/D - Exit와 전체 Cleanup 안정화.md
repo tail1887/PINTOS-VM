@@ -64,28 +64,34 @@ sequenceDiagram
 
 ### 4.3 함수별 구현 주석 (고정안)
 
+#### §4.3.0 (이 문서)
+
+[Merge 1 `00-서론.md`](../Merge%201%20-%20Frame%20Claim%20+%20Lazy%20Loading/00-%EC%84%9C%EB%A1%A0.md) §4.3.0과 동일.
+
+---
+
 #### exit cleanup 통합 경로
 
-**추상**
+Merge 5–D에서 이 경로는 **`process_exit`에서 VM 자원 정리 순서**를 고정해 **double free 없이** SPT·mmap·swap·frame을 회수한다.
 
-```c
-/* Merge5-D: process_exit에서 VM 자원 정리 순서를 고정해 double free 없이 SPT/mmap/swap/frame을 회수한다. */
-```
-
-**1단계 구체**
-
-- kill 경로에서 SPT 엔트리 순회 + destroy.
-- 남은 mmap 매핑 정리(write-back 포함).
-- anon swap 슬롯과 frame 링크를 누수 없이 해제.
-
-**2단계 구체**
+**흐름**
 
 1. exit 진입 시 VM cleanup 함수 호출.
-2. `supplemental_page_table_kill`로 SPT 기반 정리.
-3. mmap 잔여 구간이 있으면 `do_munmap` 경로 실행.
-4. 타입별 destroy에서 중복 해제 가드 확인.
-5. 종료 시 VM 관련 리스트/해시가 비어 있는지 보장.
-6. **하지 않음**: 새로운 페이지 생성, fork copy 수행.
+2. `supplemental_page_table_kill`로 SPT 순회·destroy.
+3. mmap 잔여 구간이 있으면 `do_munmap` 등 Merge 3 규약.
+4. 타입별 destroy에서 중복 해제 가드.
+5. 종료 시 VM 해시·리스트가 비었는지 확인.
+6. **하지 않음 (D 경계)**: 새 page 생성, fork copy.
+
+**플로우차트**
+
+```mermaid
+flowchart TD
+  A([process_exit]) --> B[supplemental_page_table_kill]
+  B --> C[mmap 잔여 정리]
+  C --> D[swap frame 잔여]
+  D --> E([종료])
+```
 
 ### 4.4 함수 간 연결 순서 (호출 체인)
 

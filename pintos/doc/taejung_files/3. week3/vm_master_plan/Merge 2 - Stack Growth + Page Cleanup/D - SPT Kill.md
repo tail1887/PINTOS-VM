@@ -63,28 +63,36 @@ sequenceDiagram
 
 ### 4.3 함수별 구현 주석 (고정안)
 
+#### §4.3.0 (이 문서)
+
+[Merge 1 `00-서론.md`](../Merge%201%20-%20Frame%20Claim%20+%20Lazy%20Loading/00-%EC%84%9C%EB%A1%A0.md) §4.3.0과 동일.
+
+---
+
 #### `supplemental_page_table_kill` (`vm/vm.c`)
 
-**추상**
+Merge 2–D에서 이 함수는 **SPT 해시를 순회**하며 각 page에 **`destroy(page)`**를 호출하고 엔트리를 제거해 **종료 시 SPT가 비도록** 한다.
 
-```c
-/* Merge2-D: SPT를 순회하며 각 page의 destroy를 호출하고 엔트리를 제거한다. 종료 시 SPT가 비어 있는 상태를 보장한다. */
-```
-
-**1단계 구체**
-
-- hash 순회 API(`hash_first/hash_next` 또는 `hash_destroy`)를 사용한다.
-- 각 page마다 C의 타입별 destroy가 vtable로 호출된다.
-- 순회 중 iterator 무효화가 나지 않도록 안전한 삭제 순서를 지킨다.
-
-**2단계 구체**
+**흐름**
 
 1. `struct hash *h = &spt->hash;`
-2. 엔트리를 순회하며 `struct page *p`를 얻는다.
-3. `destroy(p)`를 호출해 타입별 자원 정리.
-4. 엔트리 삭제 후 `free(p)` 또는 기존 `spt_remove_page` 규약으로 일관 처리.
-5. 순회 종료 후 hash가 비었는지 보장.
-6. **하지 않음**: stack growth 판별, 새로운 page claim, mmap 등록.
+2. `hash_first`/`hash_next` 또는 `hash_destroy`+콜백 등 **삭제 안전**한 순회만 사용한다.
+3. 각 `struct page *p`에 대해 `destroy(p)` (C의 vtable) 후 `free(p)` 또는 `spt_remove_page` 규약과 일치시킨다.
+4. 순회 종료 후 hash가 비었는지 보장한다.
+5. **하지 않음 (D 경계)**: stack growth 판별, 새 page claim, mmap 등록.
+
+**플로우차트**
+
+```mermaid
+flowchart TD
+  A([supplemental_page_table_kill]) --> B[hash 순회 시작]
+  B --> C{다음 엔트리?}
+  C -->|없음| Z([종료])
+  C -->|있음| D[page 포인터]
+  D --> E[destroy page]
+  E --> F[free 또는 remove]
+  F --> B
+```
 
 ### 4.4 함수 간 연결 순서 (호출 체인)
 

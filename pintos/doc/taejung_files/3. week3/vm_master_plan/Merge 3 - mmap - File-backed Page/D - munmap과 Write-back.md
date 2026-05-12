@@ -63,27 +63,37 @@ sequenceDiagram
 
 ### 4.3 함수별 구현 주석 (고정안)
 
+#### §4.3.0 (이 문서)
+
+[Merge 1 `00-서론.md`](../Merge%201%20-%20Frame%20Claim%20+%20Lazy%20Loading/00-%EC%84%9C%EB%A1%A0.md) §4.3.0과 동일.
+
+---
+
 #### `do_munmap` (`vm/file.c`)
 
-**추상**
+Merge 3–D에서 이 함수는 **mmap 구간을 페이지 단위로 순회**하며 dirty면 **파일에 write-back**하고 **매핑을 제거**한다.
 
-```c
-/* Merge3-D: mmap 구간을 순회하며 dirty 페이지를 파일에 반영하고 매핑을 제거한다. */
-```
-
-**1단계 구체**
-
-- 구간 내 각 페이지에서 dirty bit를 확인.
-- dirty면 file write-back 수행.
-- destroy/PTE clear를 호출해 매핑 해제.
-
-**2단계 구체**
+**흐름**
 
 1. `for` 루프로 mmap 범위를 페이지 단위 순회.
-2. `pml4_is_dirty` 또는 동등 API로 dirty 검사.
-3. dirty면 `file_write_at`으로 `read_bytes` 범위 반영.
-4. `destroy(page)`/`spt_remove_page`/`pml4_clear_page` 규약에 맞춰 해제.
-5. **하지 않음**: 새 mmap 등록, stack growth, eviction 정책 변경.
+2. `pml4_is_dirty` 등으로 dirty 검사.
+3. dirty면 `file_write_at` 등으로 반영(팀 규약 범위·길이).
+4. `destroy(page)` / `spt_remove_page` / `pml4_clear_page` 규약에 맞춰 해제.
+5. **하지 않음 (D 경계)**: 새 mmap 등록, stack growth, eviction 정책 변경.
+
+**플로우차트**
+
+```mermaid
+flowchart TD
+  A([do_munmap]) --> B[페이지 순회]
+  B --> C{다음 페이지?}
+  C -->|아니오| Z([완료])
+  C -->|예| D{dirty?}
+  D -->|예| E[write-back]
+  D -->|아니오| F[해제만]
+  E --> F
+  F --> B
+```
 
 ### 4.4 함수 간 연결 순서 (호출 체인)
 

@@ -66,32 +66,41 @@ sequenceDiagram
 
 ### 4.3 함수별 구현 주석 (고정안)
 
-D는 **스택 1페이지 등록 + 즉시 claim + rsp 설정**으로 고정한다.
+D는 **스택 1페이지 등록 + (선택) 즉시 claim + rsp 설정**으로 고정한다.
+
+#### §4.3.0 (이 문서)
+
+[Merge 1 `00-서론.md`](00-%EC%84%9C%EB%A1%A0.md) §4.3.0과 동일.
+
+---
 
 #### `setup_stack` (`userprog/process.c`, `#ifdef VM`)
 
-**추상**
+Merge 1–D에서 이 함수는 **`stack_bottom`에 스택용 페이지를 SPT에 넣고**, 팀 정책에 따라 **즉시 `vm_claim_page`로 올리거나** 첫 fault에 맡긴다. 성공 시 **`if_->rsp`를 `USER_STACK`으로** 맞춘다. `vm_stack_growth`는 Merge 2.
 
-```c
-/* Merge1-D: stack_bottom VA에 스택용 page를 anon/uninit 경로로 SPT에 넣고, 필요하면 즉시 vm_claim_page로 올린다. 성공 시 if_->rsp를 USER_STACK으로 맞춘다. vm_stack_growth는 Merge2. */
+**흐름**
+
+1. `void *stack_bottom = (uint8_t *) USER_STACK - PGSIZE;`
+2. `vm_alloc_page_with_initializer(VM_ANON, stack_bottom, true, …)` 등으로 SPT 등록 — `uninit_new`/`anon_initializer` 조합은 B와 동일하게 맞춘다.
+3. **즉시 매핑 정책**이면 `vm_claim_page(stack_bottom)` → 내부에서 `spt_find_page` → `vm_do_claim_page`. 아니면 SPT만 두고 첫 접근은 `00-서론` §1.1 fault 경로.
+4. 성공 시 `if_->rsp = (uint64_t) USER_STACK` — 인자 스택 쌓기 전제.
+5. **하지 않음 (D 경계)**: `vm_stack_growth`, user `rsp` 커널 저장 필드, fault 시 스택 범위 판별(Merge 2).
+6. 이후 `push_arguments` 등은 매핑이 살아 있는 상태에서만 호출한다.
+
+**플로우차트**
+
+```mermaid
+flowchart TD
+  A([setup_stack]) --> B[stack_bottom 계산]
+  B --> C{vm_alloc 성공?}
+  C -->|아니오| Z([return false])
+  C -->|예| D{즉시 claim 정책?}
+  D -->|예| E{vm_claim_page 성공?}
+  E -->|아니오| Z
+  E -->|예| F[rsp USER_STACK]
+  D -->|아니오| F
+  F --> G([return true])
 ```
-
-**1단계 구체**
-
-- `void *stack_bottom = (uint8_t *) USER_STACK - PGSIZE;` — 스켈레톤 1247행.
-- `vm_alloc_page_with_initializer (VM_ANON, stack_bottom, true, NULL, NULL)` 또는 스택 전용 initializer — 스택은 보통 anon·zero.
-- 선택 A: 바로 `vm_claim_page (stack_bottom)` → 내부에서 `vm_do_claim_page` → 스택 프레임+PTE.
-- 선택 B: SPT만 넣고 첫 접근 시 `00-서론` §1.1 fault 경로.
-- 성공 시 `if_->rsp = (uint64_t) USER_STACK` — 인자 스택 쌓기 전제.
-
-**2단계 구체**
-
-1. `void *sb = ((uint8_t *) USER_STACK) - PGSIZE;`
-2. `if (!vm_alloc_page_with_initializer (VM_ANON, sb, true, …)) return false;` — `anon_initializer`/`uninit_new` 조합은 B와 동일.
-3. **즉시 매핑 정책**: `if (!vm_claim_page (sb)) return false;` — `vm_claim_page` → `spt_find_page` → `vm_do_claim_page`.
-4. `if_->rsp = USER_STACK;` (또는 정렬 규약에 맞는 초기 rsp).
-5. **하지 않음**: `vm_stack_growth`, user `rsp` 커널 저장 필드, fault 시 스택 범위 판별(Merge2).
-6. 이후 `push_arguments` 등은 이 매핑이 살아 있는 상태에서만 호출.
 
 ### 4.4 함수 간 연결 순서 (호출 체인)
 

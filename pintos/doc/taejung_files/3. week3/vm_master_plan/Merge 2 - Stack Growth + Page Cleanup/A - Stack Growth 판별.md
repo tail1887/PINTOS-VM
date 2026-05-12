@@ -62,31 +62,38 @@ sequenceDiagram
 
 ### 4.3 함수별 구현 주석 (고정안)
 
+#### §4.3.0 (이 문서)
+
+[Merge 1 `00-서론.md`](../Merge%201%20-%20Frame%20Claim%20+%20Lazy%20Loading/00-%EC%84%9C%EB%A1%A0.md) §4.3.0과 동일.
+
+---
+
 #### `vm_try_handle_fault` (`vm/vm.c`)
 
-**추상**
+Merge 2–A에서 이 함수는 **SPT miss일 때 fault 주소가 stack growth 조건을 만족하는지 판별**하고, 만족하면 **`vm_stack_growth` 경로**로 넘긴다. 아니면 `false`다.
 
-```c
-/* Merge2-A: SPT miss일 때 fault 주소가 stack growth 조건을 만족하는지만 판별한다. 만족하면 vm_stack_growth 호출 경로로 넘기고, 아니면 false를 반환한다. */
+**흐름**
+
+1. `page = spt_find_page(&thread_current()->spt, pg_round_down(addr));`
+2. `page != NULL`이면 Merge 1 claim: `return vm_do_claim_page(page);`
+3. `page == NULL`이면 `not_present`·`user` 등으로 stack 후보가 아닌 fault는 `return false;`
+4. `addr`, `user_rsp`(또는 `f->rsp`/저장 필드), `USER_STACK`, `STACK_LIMIT`로 growth 가능성 판단 — `is_stack_access` 등 `static` 헬퍼로 빼도 된다.
+5. 조건 통과 시 `return vm_stack_growth(pg_round_down(addr));` (또는 growth 후 claim 결과).
+6. **하지 않음 (A 경계)**: destroy, kill, swap slot 정리.
+
+**플로우차트**
+
+```mermaid
+flowchart TD
+  A([vm_try_handle_fault]) --> B[spt_find_page]
+  B --> C{page 존재?}
+  C -->|예| D[vm_do_claim_page]
+  D --> R([return bool])
+  C -->|아니오| E{stack growth 후보?}
+  E -->|아니오| F([return false])
+  E -->|예| G[vm_stack_growth]
+  G --> R
 ```
-
-**1단계 구체**
-
-- `page = spt_find_page (...)`가 존재하면 Merge 1 claim 경로로 넘긴다.
-- `page == NULL`이면 `addr`, `f->rsp`(또는 저장된 user rsp), stack 한계로 growth 가능성 판단.
-- 조건 통과 시 B의 `vm_stack_growth (addr)` 호출.
-
-**2단계 구체**
-
-1. `page = spt_find_page (&thread_current ()->spt, pg_round_down (addr));`
-2. `if (page != NULL) return vm_do_claim_page (page);`
-3. `if (!not_present || !user) return false;`
-4. `if (!is_stack_access (addr, user_rsp, USER_STACK, STACK_LIMIT)) return false;`
-   - `is_stack_access`가 코드에 없으면 `vm.c` 내부 `static bool` 헬퍼로 추가한다.
-   - 입력은 `addr`, `user_rsp`, `USER_STACK`, `STACK_LIMIT`만 받고, 반환은 “stack 후보면 true”로 고정한다.
-   - 내부는 주소 범위(`USER_STACK - STACK_LIMIT <= addr < USER_STACK`) + `addr >= user_rsp - 8`(또는 팀 규약 오프셋) 판정만 수행한다.
-5. `return vm_stack_growth (pg_round_down (addr));` 또는 growth 후 claim 결과 반환.
-6. **하지 않음**: destroy, kill, swap slot 정리.
 
 ### 4.4 함수 간 연결 순서 (호출 체인)
 

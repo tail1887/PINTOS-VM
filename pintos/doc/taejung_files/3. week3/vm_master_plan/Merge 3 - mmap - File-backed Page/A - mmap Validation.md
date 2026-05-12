@@ -60,27 +60,34 @@ sequenceDiagram
 
 ### 4.3 함수별 구현 주석 (고정안)
 
+#### §4.3.0 (이 문서)
+
+[Merge 1 `00-서론.md`](../Merge%201%20-%20Frame%20Claim%20+%20Lazy%20Loading/00-%EC%84%9C%EB%A1%A0.md) §4.3.0과 동일.
+
+---
+
 #### `do_mmap` validation 블록
 
-**추상**
+Merge 3–A에서 이 블록은 **mmap 요청의 유효성만 판정**한다. 하나라도 실패하면 **등록 루프에 들어가지 않는다.**
 
-```c
-/* Merge3-A: mmap 요청의 유효성만 판정한다. 하나라도 실패하면 즉시 NULL/에러를 반환하고 등록 루프에 들어가지 않는다. */
+**흐름**
+
+1. 인자 수집 후 빠른 실패: `addr == NULL`, `pg_ofs(addr) != 0`, `length == 0` 등.
+2. `fd`가 표준입출력·닫힌 fd인지 검사.
+3. `for`/헬퍼로 `[addr, addr+length)`가 기존 SPT와 overlap인지 검사.
+4. 실패 시 `return NULL`(또는 오류 코드). 통과 시에만 B의 등록 단계로 진입.
+5. **하지 않음 (A 경계)**: page 생성, `file_read`, munmap write-back.
+
+**플로우차트**
+
+```mermaid
+flowchart TD
+  A([do_mmap validation]) --> B{정렬 길이 fd OK?}
+  B -->|아니오| Z([return NULL])
+  B -->|예| C{SPT overlap?}
+  C -->|예| Z
+  C -->|아니오| D([B 등록으로 진입])
 ```
-
-**1단계 구체**
-
-- `addr == NULL`, `pg_ofs (addr) != 0`, `length == 0` 등 즉시 거절.
-- `fd`가 표준입출력/닫힌 fd인지 검사.
-- 대상 VA 구간이 기존 SPT와 겹치면 거절.
-
-**2단계 구체**
-
-1. 인자 수집 후 빠른 실패 조건부터 검사한다.
-2. `for`/헬퍼로 `[addr, addr+length)` 구간 overlap 검사.
-3. 실패 시 `return NULL` (또는 오류 코드).
-4. 통과 시 B의 등록 단계로만 진입.
-5. **하지 않음**: page 생성, file read, munmap write-back.
 
 ### 4.4 함수 간 연결 순서 (호출 체인)
 
