@@ -3,6 +3,7 @@
 #include <stdbool.h>
 #include "threads/palloc.h"
 #include "threads/list.h"
+#include <stddef.h>
 
 enum vm_type {
 	/* page not initialized */
@@ -68,7 +69,11 @@ struct page {
 struct frame {
 	void *kva;
 	struct page *page;
+	/* PTE가 걸려 있는 프로세스 (글로벌 frame table에서 accessed/clear 할 때 사용). */
+	struct thread *owner;
 	struct list_elem elem;
+	int pin_count;
+	bool claiming;
 };
 
 /* The function table for page operations.
@@ -114,6 +119,8 @@ bool vm_alloc_page_with_initializer (enum vm_type type, void *upage,
 		bool writable, vm_initializer *init, void *aux);
 void vm_dealloc_page (struct page *page);
 bool vm_claim_page (void *va);
+bool vm_pin_user_buffer (const void *uaddr, size_t size);
+void vm_unpin_user_buffer (const void *uaddr, size_t size);
 enum vm_type page_get_type (struct page *page);
 
 #endif  /* VM_VM_H */

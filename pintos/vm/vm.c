@@ -9,6 +9,8 @@
 #include "threads/mmu.h"
 #include "threads/list.h"
 #include <string.h>
+#include "threads/vaddr.h"
+#include <stdint.h>
 
 
 static struct list frame_table;
@@ -291,10 +293,17 @@ vm_get_victim (void) {
 		clock_hand = list_next (clock_hand); /* 다음 후보를 미리 저장 */
 		if (f->page == NULL)
 			return f; /* 비어있는 프레임이면 바로 재사용 */
+		if (f->pin_count > 0)
+			continue;
+		if (f->claiming)
+			continue;
 		struct page *p = f->page;
-		/* accessed=1 이면 bit 내리고 2nd chance */
-		if (pml4_is_accessed (thread_current ()->pml4, p->va)) {
-			pml4_set_accessed (thread_current ()->pml4, p->va, false);
+		struct thread *owner = f->owner;
+		if (owner == NULL)
+			continue;
+		/* accessed=1 이면 bit 내리고 2nd chance (매핑은 owner의 pml4에 있음) */
+		if (pml4_is_accessed (owner->pml4, p->va)) {
+			pml4_set_accessed (owner->pml4, p->va, false);
 			continue;
 		}
 		/* accessed=0 이면 victim */
@@ -314,12 +323,16 @@ vm_evict_frame (void) {
 	/* 연결된 page가 있으면 backing store로 내보냄 */
 	if (victim->page != NULL) {
 		struct page *page = victim->page;
+		struct thread *owner = victim->owner;
+		if (owner == NULL)
+			return NULL;
 		if (!swap_out (page))
 			return NULL;
 		/* 기존 매핑 해제 + 양방향 링크 해제 */
-		pml4_clear_page (thread_current ()->pml4, page->va);
+		pml4_clear_page (owner->pml4, page->va);
 		page->frame = NULL;
 		victim->page = NULL;
+		victim->owner = NULL;
 	}
 
 	/* victim frame 자체(kva)는 재사용 */
@@ -433,6 +446,8 @@ vm_do_claim_page (struct page *page) {
 	/* Set links */
 	frame->page = page;
 	page->frame = frame;
+	frame->owner = thread_current ();
+	frame->claiming = true;
 
 	/* TODO: Insert page table entry to map page's VA to frame's PA. */
 	// swap_in(page, frame->kva)로 page 내용을 frame에 채운다.
@@ -440,6 +455,8 @@ vm_do_claim_page (struct page *page) {
 		palloc_free_page(frame->kva);
 		page->frame = NULL;
 		frame->page = NULL;
+		frame->owner = NULL;
+		frame->claiming = false;
 		frame_table_remove(frame);
 		free(frame);
 		return false;
@@ -450,12 +467,70 @@ vm_do_claim_page (struct page *page) {
 		palloc_free_page(frame->kva);
 		page->frame = NULL;
 		frame->page = NULL;
+		frame->owner = NULL;
+		frame->claiming = false;
 		frame_table_remove(frame);
 		free(frame);
 		return false;
 	}
 
+	frame->claiming = false;
 	return true;
+}
+
+
+bool
+vm_pin_user_buffer (const void *uaddr, size_t size) {
+	if (size == 0)
+		return true;
+
+	struct thread *t = thread_current ();
+	uintptr_t start = (uintptr_t) pg_round_down (uaddr);
+	uintptr_t last_byte = (uintptr_t) uaddr + (size - 1);
+	uintptr_t end_page = (uintptr_t) pg_round_down ((const void *) last_byte);
+	uintptr_t p;
+
+	for (p = start; p <= end_page; p += PGSIZE)
+		{
+			struct page *pg = spt_find_page (&t->spt, (void *) p);
+			if (pg == NULL)
+				goto rollback;
+			if (pg->frame == NULL && !vm_claim_page ((void *) p))
+				goto rollback;
+			pg = spt_find_page (&t->spt, (void *) p);
+			if (pg == NULL || pg->frame == NULL)
+				goto rollback;
+			pg->frame->pin_count++;
+		}
+	return true;
+
+rollback:
+	for (uintptr_t q = start; q < p; q += PGSIZE)
+		{
+			struct page *pg = spt_find_page (&t->spt, (void *) q);
+			if (pg != NULL && pg->frame != NULL && pg->frame->pin_count > 0)
+				pg->frame->pin_count--;
+		}
+	return false;
+}
+
+void
+vm_unpin_user_buffer (const void *uaddr, size_t size)
+{
+	if (size == 0)
+		return;
+
+	struct thread *t = thread_current ();
+	uintptr_t start = (uintptr_t) pg_round_down (uaddr);
+	uintptr_t last_byte = (uintptr_t) uaddr + (size - 1);
+	uintptr_t end_page = (uintptr_t) pg_round_down ((const void *) last_byte);
+
+	for (uintptr_t p = start; p <= end_page; p += PGSIZE)
+		{
+			struct page *pg = spt_find_page (&t->spt, (void *) p);
+			if (pg != NULL && pg->frame != NULL && pg->frame->pin_count > 0)
+				pg->frame->pin_count--;
+		}
 }
 
 /* Initialize new supplemental page table */

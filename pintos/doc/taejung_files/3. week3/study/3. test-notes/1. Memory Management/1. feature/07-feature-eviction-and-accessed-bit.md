@@ -10,6 +10,10 @@ frame table, `pintos/vm/vm.c`의 `vm_get_victim()`, `vm_evict_frame()`, `pintos/
 ### 완성의 의미 (결과 관점)
 victim page의 데이터가 보존되고 pml4 mapping이 제거된 뒤 frame이 새 page에 재사용됩니다.
 
+### 이 문서(07) 단계에서 끝내는 것 vs 뒤 트랙에서 끝내는 것
+- **07에서 끝내는 것 (본 문서 DoD)**: 글로벌 frame table 기준 **victim 선정**(clock·accessed·owner `pml4`·`pin_count`/`claiming`), **`vm_evict_frame`에서 `swap_out(page)` 호출**, **매핑 해제**(`pml4_clear_page`), **`page`/`frame` 연결 해제**, **`vm_get_frame` 실패 시 eviction 진입**. 블로킹 syscall I/O 동안 유저 버퍼 페이지를 eviction에서 제외하는 **pin**은 `userprog/syscall.c` 등 호출부와 함께 두어도 된다.
+- **뒤 문서·다른 트랙에서 끝내는 것**: `swap_out`의 **실제 내용 보존** — anonymous는 **`5. Swap In&Out/1. feature/01-feature-anonymous-swap-in-out.md`**의 `vm_anon_init`, `anon_swap_out`, `anon_swap_in` 등; file-backed dirty **write-back** 및 mmap 경계는 **`4. Memory Mapped Files`** 등 해당 트랙 문서에서 다룬다. §4.2·§5.2에 나오는 `anon_swap_out` / `file_backed_swap_out`은 **호출 연결 대상**이며, **디스크·슬롯·메타데이터 채우기 본문은 07 단계 필수가 아니다** (단, 전체 과제 통과를 위해서는 뒤 트랙 구현이 끝나야 “완성의 의미”가 코드까지 성립한다).
+
 ## 2. 가능한 구현 방식 비교
 - 방식 A: clock 알고리즘
   - 장점: accessed bit를 사용해 최근 사용 page를 피함

@@ -21,6 +21,9 @@
 #include "threads/init.h"  // power_off 함수
 #include "filesys/file.h"  // file_write 함수
 #include "devices/input.h" //sys_read
+#ifdef VM
+#include "vm/vm.h"
+#endif
 
 // 평소에는 꺼두기
 #define USER_MEM_DEBUG 0
@@ -228,7 +231,14 @@ static int sys_write(int fd, const void *buffer, unsigned size)
 	// 표준출력, 버퍼에서 size만큼 읽어서 터미널에 출력
 	if (fd == 1)
 	{
+#ifdef VM
+		if (!vm_pin_user_buffer (buffer, size))
+			fail_invalid_user_memory ();
+#endif
 		putbuf(buffer, size);
+#ifdef VM
+		vm_unpin_user_buffer (buffer, size);
+#endif
 		return size;
 	}
 	if (fd <= 0)
@@ -246,9 +256,16 @@ static int sys_write(int fd, const void *buffer, unsigned size)
 		return -1;
 
 	// fd가 2이상이면 일반파일, 찾아온 file에 버퍼 내용을 size만큼 쓰기
+#ifdef VM
+	if (!vm_pin_user_buffer (buffer, size))
+		fail_invalid_user_memory ();
+#endif
 	lock_acquire(&filesys_lock);
 	int bytes_written = file_write(file, buffer, size);
 	lock_release(&filesys_lock);
+#ifdef VM
+	vm_unpin_user_buffer (buffer, size);
+#endif
 	return bytes_written;
 }
 
@@ -290,10 +307,17 @@ static int sys_read(int fd, void *buffer, unsigned size)
 
 	if (fd == 0) // 표준입력,  size만큼 반복, 문자 하나를 읽어서 버퍼에 저장후, size반환
 	{
+#ifdef VM
+		if (!vm_pin_user_buffer (buffer, size))
+			fail_invalid_user_memory ();
+#endif
 		for (unsigned i = 0; i < size; i++)
 		{
 			((uint8_t *)buffer)[i] = input_getc();
 		}
+#ifdef VM
+		vm_unpin_user_buffer (buffer, size);
+#endif
 		return size;
 	}
 
@@ -302,9 +326,16 @@ static int sys_read(int fd, void *buffer, unsigned size)
 		file = find_file_by_fd(fd);
 		if (file == NULL)
 			return -1;
+#ifdef VM
+		if (!vm_pin_user_buffer (buffer, size))
+			fail_invalid_user_memory ();
+#endif
 		lock_acquire(&filesys_lock);
 		int bytes = file_read(file, buffer, size);
 		lock_release(&filesys_lock);
+#ifdef VM
+		vm_unpin_user_buffer (buffer, size);
+#endif
 		return bytes;
 	}
 	return -1;
