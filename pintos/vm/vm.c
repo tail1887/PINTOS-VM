@@ -37,7 +37,7 @@ page_get_type (struct page *page) {
 static struct frame *vm_get_victim (void);
 static bool vm_do_claim_page (struct page *page);
 static struct frame *vm_evict_frame (void);
-static unsigned page_hash (const struct hash_elem *e, void *aux);
+static uint64_t page_hash (const struct hash_elem *e, void *aux);
 static bool page_less (const struct hash_elem *a,
 		const struct hash_elem *b, void *aux);
 
@@ -197,7 +197,7 @@ supplemental_page_table_kill (struct supplemental_page_table *spt UNUSED) {
 }
 
 /* Returns a hash value for a page based on its user virtual address. */
-static unsigned
+static uint64_t
 page_hash (const struct hash_elem *e, void *aux) {
 	UNUSED (aux);
 	struct page *page = hash_entry (e, struct page, elem);
