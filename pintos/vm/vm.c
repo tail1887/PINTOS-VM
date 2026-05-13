@@ -241,7 +241,7 @@ supplemental_page_table_copy (struct supplemental_page_table *dst UNUSED,
 
 /* spt kill용 페이지 제거기 */ 
 static void
-spt_page_destructor(struct hash_elem *e, void *aux) {
+spt_page_destructor (struct hash_elem *e, void *aux UNUSED) {
 	struct page *p = hash_entry(e, struct page, elem);
 	vm_dealloc_page(p);
 }
