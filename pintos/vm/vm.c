@@ -239,11 +239,20 @@ supplemental_page_table_copy (struct supplemental_page_table *dst UNUSED,
 		struct supplemental_page_table *src UNUSED) {
 }
 
+/* spt kill용 페이지 제거기 */ 
+static void
+spt_page_destructor(struct hash_elem *e, void *aux) {
+	struct page *p = hash_entry(e, struct page, elem);
+	vm_dealloc_page(p);
+}
+
 /* Free the resource hold by the supplemental page table */
 void
-supplemental_page_table_kill (struct supplemental_page_table *spt UNUSED) {
+supplemental_page_table_kill (struct supplemental_page_table *spt) {
 	/* TODO: Destroy all the supplemental_page_table hold by thread and
 	 * TODO: writeback all the modified contents to the storage. */
+	hash_destroy(&(spt->hash), spt_page_destructor);
+
 }
 
 /* Returns a hash value for a page based on its user virtual address. */
