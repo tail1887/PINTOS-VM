@@ -50,10 +50,17 @@ uninit_initialize (struct page *page, void *kva) {
 	/* Fetch first, page_initialize may overwrite the values */
 	vm_initializer *init = uninit->init;
 	void *aux = uninit->aux;
+	enum vm_type type = uninit->type;
+	bool (*page_initializer) (struct page *, enum vm_type, void *) =
+		uninit->page_initializer;
 
-	/* TODO: You may need to fix this function. */
-	return uninit->page_initializer (page, uninit->type, kva) &&
-		(init ? init (page, aux) : true);
+	if (!page_initializer (page, type, kva))
+		return false;
+
+	if (init == NULL)
+		return true;
+
+	return init (page, aux);
 }
 
 /* Free the resources hold by uninit_page. Although most of pages are transmuted
