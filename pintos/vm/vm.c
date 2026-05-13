@@ -177,7 +177,8 @@ vm_claim_page (void *va) {
 	/* TODO: Fill this function */
 	struct supplemental_page_table *spt = &thread_current()->spt;
 	page = spt_find_page(spt, va);
-	
+	if (page == NULL)
+		return false;
 	return vm_do_claim_page (page);
 }
 
@@ -194,8 +195,8 @@ vm_do_claim_page (struct page *page) {
 	void * upage = page->va;
 	void * kpage = pg_round_down(frame->kva);
 
-	assert(pml4_set_page(thread_current()->pml4, upage, kpage, page->writable));
-	
+	if (!pml4_set_page(thread_current()->pml4, upage, kpage, page->writable))
+		return false;
 	return swap_in (page, frame->kva);
 }
 
