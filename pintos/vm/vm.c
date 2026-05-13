@@ -43,6 +43,7 @@ static struct frame *vm_evict_frame (void);
 static uint64_t page_hash (const struct hash_elem *e, void *aux);
 static bool page_less (const struct hash_elem *a,
 		const struct hash_elem *b, void *aux);
+static bool vm_can_stack_growth(struct intr_frame *f, void *addr, bool user);
 
 /* Create the pending page object with initializer. If you want to create a
  * page, do not create it directly and make it through this function or
@@ -179,14 +180,41 @@ vm_handle_wp (struct page *page UNUSED) {
 
 /* Return true on success */
 bool
-vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,
-		bool user UNUSED, bool write UNUSED, bool not_present UNUSED) {
-	struct supplemental_page_table *spt UNUSED = &thread_current ()->spt;
+vm_try_handle_fault (struct intr_frame *f , void *addr ,
+		bool user , bool write , bool not_present ) {
+	struct supplemental_page_table *spt = &thread_current ()->spt;
 	struct page *page = NULL;
-	/* TODO: Validate the fault */
-	/* TODO: Your code goes here */
+	//addr 가 커널주소인지 유저 주소인지? user == true?
+	if (!not_present){
+		return false;
+	}
+	if (!is_user_vaddr(addr)){
+		return false;
+	}
+	page = spt_find_page(spt, addr);
+	if (page != NULL) {
+		return vm_do_claim_page(page);
+	}
+	return vm_can_stack_growth(f, addr, user);
+	
+}
 
-	return vm_do_claim_page (page);
+static bool
+vm_can_stack_growth (struct intr_frame *f, void *addr, bool user){
+	//user모드 fault인지, kernel모드 fault인지 분리해서 검사
+	struct thread *curr = thread_current();
+	void * stack_bottom_limit = (char*)USER_STACK - (1 << 20);
+	if (stack_bottom_limit > addr || addr >= USER_STACK){
+		return false;
+	}
+	if (user){
+		if (addr < f->rsp - 8){
+			return false;
+		}
+		addr = pg_round_down(addr);
+		struct page *page = vm_alloc_page(VM_ANON, addr, true);
+
+	}
 }
 
 /* Free the page.
@@ -262,3 +290,4 @@ page_less (const struct hash_elem *a, const struct hash_elem *b, void *aux UNUSE
 	const struct page *page_b = hash_entry (b, struct page, elem);
 	return page_a->va < page_b->va;
 }
+
