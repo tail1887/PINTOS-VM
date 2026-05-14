@@ -169,8 +169,14 @@ vm_get_frame (void) {
 }
 
 /* Growing the stack. */
-static void
-vm_stack_growth (void *addr UNUSED) {
+static bool
+vm_stack_growth (void *addr) {
+	addr = pg_round_down(addr);
+	struct page *page = vm_alloc_page(VM_ANON, addr, true);
+		
+	if (page == NULL){
+		return false;
+	}
 }
 
 /* Handle the fault on write_protected page */
@@ -195,7 +201,10 @@ vm_try_handle_fault (struct intr_frame *f , void *addr ,
 	if (page != NULL) {
 		return vm_do_claim_page(page);
 	}
-	return vm_can_stack_growth(f, addr, user);
+	
+	if(vm_can_stack_growth(f, addr, user)){
+		return vm_stack_growth(addr);
+	}
 	
 }
 
@@ -204,17 +213,24 @@ vm_can_stack_growth (struct intr_frame *f, void *addr, bool user){
 	//user모드 fault인지, kernel모드 fault인지 분리해서 검사
 	struct thread *curr = thread_current();
 	void * stack_bottom_limit = (char*)USER_STACK - (1 << 20);
+	
 	if (stack_bottom_limit > addr || addr >= USER_STACK){
 		return false;
 	}
+	
 	if (user){
 		if (addr < f->rsp - 8){
 			return false;
 		}
-		addr = pg_round_down(addr);
-		struct page *page = vm_alloc_page(VM_ANON, addr, true);
+	} else {
+		if (addr < curr->rsp - 8){
+			return false;
+		}
 
+		
 	}
+
+
 }
 
 /* Free the page.
