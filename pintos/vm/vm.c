@@ -172,11 +172,11 @@ vm_get_frame (void) {
 static bool
 vm_stack_growth (void *addr) {
 	addr = pg_round_down(addr);
-	struct page *page = vm_alloc_page(VM_ANON, addr, true);
-		
-	if (page == NULL){
-		return false;
+	bool succ = vm_alloc_page_with_initializer(VM_ANON, addr, true, NULL, NULL);
+	if (succ){
+		return vm_claim_page(addr);
 	}
+	return false;
 }
 
 /* Handle the fault on write_protected page */
@@ -190,47 +190,49 @@ vm_try_handle_fault (struct intr_frame *f , void *addr ,
 		bool user , bool write , bool not_present ) {
 	struct supplemental_page_table *spt = &thread_current ()->spt;
 	struct page *page = NULL;
-	//addr 가 커널주소인지 유저 주소인지? user == true?
+	//writable 로 인한 page fault인지 검사
 	if (!not_present){
 		return false;
 	}
-	if (!is_user_vaddr(addr)){
+	//유저모드 주소인지 검사
+	if (addr == NULL || !is_user_vaddr(addr)){
 		return false;
 	}
+	//spt에 page가 있다면 바로 claim
 	page = spt_find_page(spt, addr);
 	if (page != NULL) {
 		return vm_do_claim_page(page);
 	}
-	
+	//spt에 page가 없다면, stack_growth검사 
 	if(vm_can_stack_growth(f, addr, user)){
 		return vm_stack_growth(addr);
 	}
 	
 }
 
+//스택그로스 검사 헬퍼함수
 static bool
 vm_can_stack_growth (struct intr_frame *f, void *addr, bool user){
 	//user모드 fault인지, kernel모드 fault인지 분리해서 검사
+	uintptr_t va = (uintptr_t) addr;
 	struct thread *curr = thread_current();
 	void * stack_bottom_limit = (char*)USER_STACK - (1 << 20);
 	
-	if (stack_bottom_limit > addr || addr >= USER_STACK){
+	if (stack_bottom_limit > va || va >= USER_STACK){
 		return false;
 	}
 	
 	if (user){
-		if (addr < f->rsp - 8){
+		if (va < f->rsp - 8){
 			return false;
 		}
+
 	} else {
-		if (addr < curr->rsp - 8){
+		if (va < curr->user_rsp - 8){
 			return false;
 		}
-
-		
 	}
-
-
+	return true;
 }
 
 /* Free the page.

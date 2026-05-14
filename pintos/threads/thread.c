@@ -501,6 +501,7 @@ init_thread (struct thread *t, const char *name, int priority) {
 	list_init(&t->donation_candidates); // donation 리스트를 초기화한다.
 	// in_donation_list를 false로 초기화한다.
 	t->in_donation_list = false;
+	t->user_rsp = 0;
 }
 
 /* Chooses and returns the next thread to be scheduled.  Should

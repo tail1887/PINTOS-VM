@@ -476,9 +476,12 @@ sys_halt(void)
 }
 
 /* The main system call interface */
-void syscall_handler(struct intr_frame *f UNUSED)
+void syscall_handler(struct intr_frame *f)
 {
-	// 10번이 SYS_WRITE
+	//syscall 처리 중 커널 모드 page fault가 나도 user rsp를 참조할 수 있도록 저장한다
+	struct thread * cur = thread_current();
+	cur->user_rsp = f->rsp;
+
 	int sys_call = f->R.rax;
 
 	switch (sys_call)
