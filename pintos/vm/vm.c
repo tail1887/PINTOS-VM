@@ -43,6 +43,7 @@ static struct frame *vm_evict_frame (void);
 static uint64_t page_hash (const struct hash_elem *e, void *aux);
 static bool page_less (const struct hash_elem *a,
 		const struct hash_elem *b, void *aux);
+static bool vm_can_stack_growth(struct intr_frame *f, void *addr, bool user);
 
 /* Create the pending page object with initializer. If you want to create a
  * page, do not create it directly and make it through this function or
@@ -168,8 +169,14 @@ vm_get_frame (void) {
 }
 
 /* Growing the stack. */
-static void
-vm_stack_growth (void *addr UNUSED) {
+static bool
+vm_stack_growth (void *addr) {
+	addr = pg_round_down(addr);
+	bool succ = vm_alloc_page_with_initializer(VM_ANON, addr, true, NULL, NULL);
+	if (succ){
+		return vm_claim_page(addr);
+	}
+	return false;
 }
 
 /* Handle the fault on write_protected page */
@@ -179,14 +186,65 @@ vm_handle_wp (struct page *page UNUSED) {
 
 /* Return true on success */
 bool
-vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,
-		bool user UNUSED, bool write UNUSED, bool not_present UNUSED) {
-	struct supplemental_page_table *spt UNUSED = &thread_current ()->spt;
+vm_try_handle_fault (struct intr_frame *f , void *addr ,
+		bool user , bool write , bool not_present ) {
+	struct supplemental_page_table *spt = &thread_current ()->spt;
 	struct page *page = NULL;
-	/* TODO: Validate the fault */
-	/* TODO: Your code goes here */
+	//page_table에 없는지 검사
+	if (!not_present){
+		return false;
+	}
+	//유저모드 주소인지 검사
+	if (addr == NULL || !is_user_vaddr(addr)){
+		return false;
+	}
+	//spt에 page가 있다면 바로 claim
+	page = spt_find_page(spt, addr);
+	if (page != NULL) {
+		//쓰기 권한 위반이 아닌지 검사
+		if (write && !page->writable) {
+			return false;
+		}
+		return vm_do_claim_page(page);
+	}
+	//spt에 page가 없다면, stack_growth검사 
+	if (vm_can_stack_growth(f, addr, user)){
+		return vm_stack_growth(addr);
+	}
+	return false;
+}
 
-	return vm_do_claim_page (page);
+//스택그로스 검사 헬퍼함수
+static bool
+vm_can_stack_growth (struct intr_frame *f, void *addr, bool user){
+	//user모드 fault인지, kernel모드 fault인지 분리해서 검사
+	uintptr_t va = (uintptr_t) addr;
+	uintptr_t stack_bottom_limit = (uintptr_t)USER_STACK - (1 << 20);
+	uintptr_t stack_top = (uintptr_t)USER_STACK;
+	struct thread *curr = thread_current();
+
+	//fault_addr가 스택 범위 내에 있는지
+	if (va < stack_bottom_limit || va >= stack_top){
+		return false;
+	}
+	//user모드에서 page_fault인 경우
+	if (user){
+		if (f->rsp < 8){
+			return false;
+		}
+		if (va < f->rsp - 8){
+			return false;
+		}
+	} else {
+	//kernel모드에서 page_fault인 경우
+		if (curr->user_rsp < 8){
+			return false;
+		}
+		if (va < curr->user_rsp - 8){
+				return false;
+		}
+	}
+	return true;
 }
 
 /* Free the page.
@@ -213,7 +271,7 @@ vm_claim_page (void *va) {
 static bool
 vm_do_claim_page (struct page *page) {
 	struct frame *frame = vm_get_frame ();
-	assert(frame != NULL);
+	ASSERT(frame != NULL);
 	/* Set links */
 	frame->page = page;
 	page->frame = frame;
@@ -262,3 +320,4 @@ page_less (const struct hash_elem *a, const struct hash_elem *b, void *aux UNUSE
 	const struct page *page_b = hash_entry (b, struct page, elem);
 	return page_a->va < page_b->va;
 }
+
