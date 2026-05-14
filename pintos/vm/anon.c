@@ -1,6 +1,7 @@
 /* anon.c: Implementation of page for non-disk image (a.k.a. anonymous page). */
 
 #include "vm/vm.h"
+#include "threads/malloc.h"
 #include "devices/disk.h"
 
 /* DO NOT MODIFY BELOW LINE */
@@ -48,5 +49,16 @@ anon_swap_out (struct page *page) {
 /* Destroy the anonymous page. PAGE will be freed by the caller. */
 static void
 anon_destroy (struct page *page) {
-	struct anon_page *anon_page = &page->anon;
+	struct frame *f = page->frame;
+	if (f == NULL)
+		return;
+
+	if (f->kva != NULL) {
+		palloc_free_page (f->kva);
+		f->kva = NULL;
+	}
+
+	f->page = NULL;
+	page->frame = NULL;
+	free (f);
 }
