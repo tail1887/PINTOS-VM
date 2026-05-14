@@ -190,7 +190,7 @@ vm_try_handle_fault (struct intr_frame *f , void *addr ,
 		bool user , bool write , bool not_present ) {
 	struct supplemental_page_table *spt = &thread_current ()->spt;
 	struct page *page = NULL;
-	//writable 로 인한 page fault인지 검사
+	//page_table에 없는지 검사
 	if (!not_present){
 		return false;
 	}
@@ -201,13 +201,17 @@ vm_try_handle_fault (struct intr_frame *f , void *addr ,
 	//spt에 page가 있다면 바로 claim
 	page = spt_find_page(spt, addr);
 	if (page != NULL) {
+		//쓰기 권한 위반이 아닌지 검사
+		if (write && !page->writable) {
+			return false;
+		}
 		return vm_do_claim_page(page);
 	}
 	//spt에 page가 없다면, stack_growth검사 
-	if(vm_can_stack_growth(f, addr, user)){
+	if (vm_can_stack_growth(f, addr, user)){
 		return vm_stack_growth(addr);
 	}
-	
+	return false;
 }
 
 //스택그로스 검사 헬퍼함수
@@ -215,21 +219,29 @@ static bool
 vm_can_stack_growth (struct intr_frame *f, void *addr, bool user){
 	//user모드 fault인지, kernel모드 fault인지 분리해서 검사
 	uintptr_t va = (uintptr_t) addr;
+	uintptr_t stack_bottom_limit = (uintptr_t)USER_STACK - (1 << 20);
+	uintptr_t stack_top = (uintptr_t)USER_STACK;
 	struct thread *curr = thread_current();
-	void * stack_bottom_limit = (char*)USER_STACK - (1 << 20);
-	
-	if (stack_bottom_limit > va || va >= USER_STACK){
+
+	//fault_addr가 스택 범위 내에 있는지
+	if (va < stack_bottom_limit || va >= stack_top){
 		return false;
 	}
-	
+	//user모드에서 page_fault인 경우
 	if (user){
+		if (f->rsp < 8){
+			return false;
+		}
 		if (va < f->rsp - 8){
 			return false;
 		}
-
 	} else {
-		if (va < curr->user_rsp - 8){
+	//kernel모드에서 page_fault인 경우
+		if (curr->user_rsp < 8){
 			return false;
+		}
+		if (va < curr->user_rsp - 8){
+				return false;
 		}
 	}
 	return true;
@@ -259,7 +271,7 @@ vm_claim_page (void *va) {
 static bool
 vm_do_claim_page (struct page *page) {
 	struct frame *frame = vm_get_frame ();
-	assert(frame != NULL);
+	ASSERT(frame != NULL);
 	/* Set links */
 	frame->page = page;
 	page->frame = frame;
