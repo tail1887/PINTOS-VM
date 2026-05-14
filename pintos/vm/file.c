@@ -1,6 +1,8 @@
 /* file.c: Implementation of memory backed file object (mmaped object). */
 
 #include "vm/vm.h"
+#include "threads/malloc.h"
+#include "threads/mmu.h"
 
 static bool file_backed_swap_in (struct page *page, void *kva);
 static bool file_backed_swap_out (struct page *page);
@@ -44,7 +46,22 @@ file_backed_swap_out (struct page *page) {
 /* Destory the file backed page. PAGE will be freed by the caller. */
 static void
 file_backed_destroy (struct page *page) {
-	struct file_page *file_page UNUSED = &page->file;
+	struct frame *f = page->frame;
+	if (f == NULL) {
+		return;
+	}
+
+	struct thread *t = thread_current ();
+	if (t->pml4 != NULL && pml4_get_page (t->pml4, page->va) != NULL)
+		pml4_clear_page (t->pml4, page->va);
+	
+	if(f->kva != NULL) {
+		palloc_free_page(f->kva);
+		f->kva = NULL;
+	}
+	f->page = NULL;
+	page->frame = NULL;
+	free(f);
 }
 
 /* Do the mmap */
