@@ -64,25 +64,60 @@ file_backed_destroy (struct page *page) {
 	free(f);
 }
 
+static bool
+mmap_initializer (struct page *page, void *aux) {
+	struct file_page *file_page = aux;
+	
+	page->file.file = file_page->file;
+	page->file.offset = file_page->offset;
+	page->file.read_bytes = file_page->read_bytes;
+	page->file.zero_bytes = file_page->zero_bytes;
+
+	palloc_free_page(file_page);
+	return true; 
+}
+
 /* Do the mmap */
 void *
 do_mmap (void *addr, size_t length, int writable,
 		struct file *file, off_t offset) {
+
+
 	size_t i = 0;
 	while(i < length){
 		struct file_page *file_page = palloc_get_page(0);
+		
+		if (file_page == NULL){
+			struct supplemental_page_table *spt = &thread_current()->spt;
+			for(size_t j = 0 ; j < i ; j += PGSIZE){
+				struct page *page = spt_find_page(spt, (uint8_t)addr + j);
+				if(page != NULL)
+					spt_remove_page(spt, page);
+			}
+			return NULL;
+		}
+
 		file_page->file = file;
 		file_page->offset = i + offset;
+		file_page->read_bytes = min(length-i, PGSIZE);
+		file_page->zero_bytes = PGSIZE - file_page->read_bytes;
 
-		size_t read_size = min(length-i, PGSIZE);
-		file_page->read_bytes = read_size;
-		file_page->zero_bytes = PGSIZE - read_size;
-
-		vm_alloc_page_with_initializer(VM_FILE, (uint8_t)addr + i, writable, , file_page);
-	
+		if(!vm_alloc_page_with_initializer(VM_FILE, (uint8_t *)addr + i, writable, 
+													mmap_initializer, file_page)){
+			
+			palloc_free_page(file_page);
+			struct supplemental_page_table *spt = &thread_current()->spt;
+			for(size_t j = 0 ; j < i ; j += PGSIZE){
+				struct page *page = spt_find_page(spt, (uint8_t)addr + j);
+				if(page != NULL)
+					spt_remove_page(spt, page);
+			}
+			return NULL;
+		}
+		
 		i += PGSIZE;
 	}
-	
+	return addr;
 }
 
 /* Do the munmap */
