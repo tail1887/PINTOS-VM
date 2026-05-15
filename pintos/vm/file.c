@@ -68,6 +68,21 @@ file_backed_destroy (struct page *page) {
 void *
 do_mmap (void *addr, size_t length, int writable,
 		struct file *file, off_t offset) {
+	size_t i = 0;
+	while(i < length){
+		struct file_page *file_page = palloc_get_page(0);
+		file_page->file = file;
+		file_page->offset = i + offset;
+
+		size_t read_size = min(length-i, PGSIZE);
+		file_page->read_bytes = read_size;
+		file_page->zero_bytes = PGSIZE - read_size;
+
+		vm_alloc_page_with_initializer(VM_FILE, (uint8_t)addr + i, writable, , file_page);
+	
+		i += PGSIZE;
+	}
+	
 }
 
 /* Do the munmap */
