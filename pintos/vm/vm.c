@@ -140,7 +140,7 @@ static struct frame *
 vm_evict_frame (void) {
 	struct frame *victim UNUSED = vm_get_victim ();
 	/* TODO: swap out the victim and return the evicted frame. */
-
+	
 	return NULL;
 }
 
@@ -171,12 +171,9 @@ vm_get_frame (void) {
 /* Growing the stack. */
 static bool
 vm_stack_growth (void *addr) {
-	addr = pg_round_down(addr);
-	bool succ = vm_alloc_page_with_initializer(VM_ANON, addr, true, NULL, NULL);
-	if (succ){
-		return vm_claim_page(addr);
-	}
-	return false;
+	void *va = pg_round_down(addr);
+	vm_alloc_page(VM_ANON, va, true);
+	return vm_claim_page(va);
 }
 
 /* Handle the fault on write_protected page */
@@ -186,66 +183,71 @@ vm_handle_wp (struct page *page UNUSED) {
 
 /* Return true on success */
 bool
-vm_try_handle_fault (struct intr_frame *f , void *addr ,
-		bool user , bool write , bool not_present ) {
-	struct supplemental_page_table *spt = &thread_current ()->spt;
+vm_try_handle_fault (struct intr_frame *f, void *addr,
+		bool user, bool write, bool not_present) {
+	
+	struct supplemental_page_table *spt UNUSED = &thread_current ()->spt;
 	struct page *page = NULL;
-	//page_table에 없는지 검사
-	if (!not_present){
+	void *va = pg_round_down(addr);
+	/* TODO: Validate the fault */
+	
+	if (is_user_vaddr(addr) == false) {
 		return false;
 	}
-	//유저모드 주소인지 검사
-	if (addr == NULL || !is_user_vaddr(addr)){
+	/* fault 원인을 검사한다*/
+	if (not_present == false) {
 		return false;
 	}
-	//spt에 page가 있다면 바로 claim
+	
+	//* TODO: Your code goes here */
+	
+	/* spt page 존재 여부 확인 */
 	page = spt_find_page(spt, addr);
-	if (page != NULL) {
-		//쓰기 권한 위반이 아닌지 검사
-		if (write && !page->writable) {
-			return false;
+		if (page) {
+			if (write && !page->writable) {
+				return false;
+			}
+			return vm_claim_page(va);
 		}
-		return vm_do_claim_page(page);
+
+	/* stack growth 조건을 검사한다 */
+	if (vm_can_stack_growth(f, addr, user) == false) {
+		return false;
 	}
-	//spt에 page가 없다면, stack_growth검사 
-	if (vm_can_stack_growth(f, addr, user)){
-		return vm_stack_growth(addr);
-	}
-	return false;
+	/* frame을 만들고 매핑하여 stack size를 키운다 */
+	return vm_stack_growth(addr);
 }
 
-//스택그로스 검사 헬퍼함수
-static bool
-vm_can_stack_growth (struct intr_frame *f, void *addr, bool user){
-	//user모드 fault인지, kernel모드 fault인지 분리해서 검사
-	uintptr_t va = (uintptr_t) addr;
-	uintptr_t stack_bottom_limit = (uintptr_t)USER_STACK - (1 << 20);
-	uintptr_t stack_top = (uintptr_t)USER_STACK;
-	struct thread *curr = thread_current();
-
-	//fault_addr가 스택 범위 내에 있는지
-	if (va < stack_bottom_limit || va >= stack_top){
+bool
+vm_can_stack_growth(struct intr_frame *f, void *addr, bool user) {
+	uintptr_t addr_ = (uintptr_t)addr; //*va 일까?
+	if (addr_ > USER_STACK) { //*addr이건가
 		return false;
 	}
-	//user모드에서 page_fault인 경우
-	if (user){
-		if (f->rsp < 8){
+	
+	void *stack_bottom_limit = (char *)USER_STACK - (1 << 20);
+	if (addr_ < stack_bottom_limit) {
+		return false;
+	}
+
+	struct thread *curr = thread_current();
+	uintptr_t user_rsp = f->rsp;
+	uintptr_t kernel_rsp = curr->user_rsp;
+
+	if (user) {
+		if (addr_ < (user_rsp - 8)) {
 			return false;
-		}
-		if (va < f->rsp - 8){
-			return false;
-		}
-	} else {
-	//kernel모드에서 page_fault인 경우
-		if (curr->user_rsp < 8){
-			return false;
-		}
-		if (va < curr->user_rsp - 8){
-				return false;
 		}
 	}
+
+	else if (addr_ < kernel_rsp - 8) {
+		return false;
+	}
+
 	return true;
 }
+
+
 
 /* Free the page.
  * DO NOT MODIFY THIS FUNCTION. */
@@ -298,20 +300,11 @@ supplemental_page_table_copy (struct supplemental_page_table *dst UNUSED,
 		struct supplemental_page_table *src UNUSED) {
 }
 
-/* spt kill용 페이지 제거기 */ 
-static void
-spt_page_destructor (struct hash_elem *e, void *aux UNUSED) {
-	struct page *p = hash_entry(e, struct page, elem);
-	vm_dealloc_page(p);
-}
-
 /* Free the resource hold by the supplemental page table */
 void
-supplemental_page_table_kill (struct supplemental_page_table *spt) {
+supplemental_page_table_kill (struct supplemental_page_table *spt UNUSED) {
 	/* TODO: Destroy all the supplemental_page_table hold by thread and
 	 * TODO: writeback all the modified contents to the storage. */
-	hash_destroy (&(spt->hash), spt_page_destructor);
-
 }
 
 /* Returns a hash value for a page based on its user virtual address. */
@@ -329,4 +322,3 @@ page_less (const struct hash_elem *a, const struct hash_elem *b, void *aux UNUSE
 	const struct page *page_b = hash_entry (b, struct page, elem);
 	return page_a->va < page_b->va;
 }
-

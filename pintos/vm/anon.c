@@ -2,8 +2,6 @@
 
 #include "vm/vm.h"
 #include "devices/disk.h"
-#include "threads/malloc.h"
-#include "threads/mmu.h"
 
 /* DO NOT MODIFY BELOW LINE */
 static struct disk *swap_disk;
@@ -50,20 +48,5 @@ anon_swap_out (struct page *page) {
 /* Destroy the anonymous page. PAGE will be freed by the caller. */
 static void
 anon_destroy (struct page *page) {
-	struct frame *f = page->frame;
-	if (f == NULL) {
-		return;
-	}
-	struct thread *t = thread_current ();
-	// 유저 VA → 물리 프레임(kva) 매핑 해제
-	if (t->pml4 != NULL && pml4_get_page (t->pml4, page->va) != NULL)
-		pml4_clear_page (t->pml4, page->va);
-	// 커널용 메모리(kva) 해제
-	if(f->kva != NULL) {
-		palloc_free_page(f->kva);
-		f->kva = NULL;
-	}
-	f->page = NULL;
-	page->frame = NULL;
-	free(f);
+	struct anon_page *anon_page = &page->anon;
 }
