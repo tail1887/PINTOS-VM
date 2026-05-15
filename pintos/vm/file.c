@@ -68,6 +68,16 @@ file_backed_destroy (struct page *page) {
 void *
 do_mmap (void *addr, size_t length, int writable,
 		struct file *file, off_t offset) {
+	struct file * mmap_file = file_reopen(file);
+	off_t file_size = file_length(file);
+	size_t remaining = length;
+	void * check_addr = addr;
+	while (remaining > 0) {
+		if (spt_find_page(&thread_current()->spt, check_addr) != NULL){
+			return NULL;
+		}
+		
+	}
 }
 
 /* Do the munmap */

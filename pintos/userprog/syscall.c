@@ -558,7 +558,9 @@ void syscall_handler(struct intr_frame *f)
 		f->R.rax = sys_exec((const char *) f->R.rdi);
 		break;
 	case SYS_MMAP:
-		
+		f->R.rax = sys_mmap((void *) f->R.rdi, (size_t) f->R.rsi, 
+						(int) f->R.rdx, (int) f->R.r10, (off_t) f->R.r8);
+		break;
 	default:
 		sys_exit(-1);
 		break;
