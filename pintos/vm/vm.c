@@ -43,6 +43,7 @@ static struct frame *vm_evict_frame (void);
 static uint64_t page_hash (const struct hash_elem *e, void *aux);
 static bool page_less (const struct hash_elem *a,
 		const struct hash_elem *b, void *aux);
+static bool vm_can_stack_growth(struct intr_frame *f, void *addr, bool user);
 
 /* Create the pending page object with initializer. If you want to create a
  * page, do not create it directly and make it through this function or
@@ -139,7 +140,7 @@ static struct frame *
 vm_evict_frame (void) {
 	struct frame *victim UNUSED = vm_get_victim ();
 	/* TODO: swap out the victim and return the evicted frame. */
-
+	
 	return NULL;
 }
 
@@ -168,8 +169,11 @@ vm_get_frame (void) {
 }
 
 /* Growing the stack. */
-static void
-vm_stack_growth (void *addr UNUSED) {
+static bool
+vm_stack_growth (void *addr) {
+	void *va = pg_round_down(addr);
+	vm_alloc_page(VM_ANON, va, true);
+	return vm_claim_page(va);
 }
 
 /* Handle the fault on write_protected page */
@@ -179,15 +183,71 @@ vm_handle_wp (struct page *page UNUSED) {
 
 /* Return true on success */
 bool
-vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,
-		bool user UNUSED, bool write UNUSED, bool not_present UNUSED) {
+vm_try_handle_fault (struct intr_frame *f, void *addr,
+		bool user, bool write, bool not_present) {
+	
 	struct supplemental_page_table *spt UNUSED = &thread_current ()->spt;
 	struct page *page = NULL;
+	void *va = pg_round_down(addr);
 	/* TODO: Validate the fault */
-	/* TODO: Your code goes here */
+	
+	if (is_user_vaddr(addr) == false) {
+		return false;
+	}
+	/* fault 원인을 검사한다*/
+	if (not_present == false) {
+		return false;
+	}
+	
+	//* TODO: Your code goes here */
+	
+	/* spt page 존재 여부 확인 */
+	page = spt_find_page(spt, addr);
+		if (page) {
+			if (write && !page->writable) {
+				return false;
+			}
+			return vm_claim_page(va);
+		}
 
-	return vm_do_claim_page (page);
+	/* stack growth 조건을 검사한다 */
+	if (vm_can_stack_growth(f, addr, user) == false) {
+		return false;
+	}
+	/* frame을 만들고 매핑하여 stack size를 키운다 */
+	return vm_stack_growth(addr);
 }
+
+bool
+vm_can_stack_growth(struct intr_frame *f, void *addr, bool user) {
+	uintptr_t addr_ = (uintptr_t)addr; //*va 일까?
+	if (addr_ > USER_STACK) { //*addr이건가
+		return false;
+	}
+	
+	void *stack_bottom_limit = (char *)USER_STACK - (1 << 20);
+	if (addr_ < stack_bottom_limit) {
+		return false;
+	}
+
+	struct thread *curr = thread_current();
+	uintptr_t user_rsp = f->rsp;
+	uintptr_t kernel_rsp = curr->user_rsp;
+
+	if (user) {
+		if (addr_ < (user_rsp - 8)) {
+			return false;
+		}
+	}
+
+	else if (addr_ < kernel_rsp - 8) {
+		return false;
+	}
+
+	return true;
+}
+
+
 
 /* Free the page.
  * DO NOT MODIFY THIS FUNCTION. */
@@ -213,7 +273,7 @@ vm_claim_page (void *va) {
 static bool
 vm_do_claim_page (struct page *page) {
 	struct frame *frame = vm_get_frame ();
-	assert(frame != NULL);
+	ASSERT(frame != NULL);
 	/* Set links */
 	frame->page = page;
 	page->frame = frame;

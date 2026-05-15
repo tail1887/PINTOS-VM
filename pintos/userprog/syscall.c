@@ -476,8 +476,10 @@ sys_halt(void)
 }
 
 /* The main system call interface */
-void syscall_handler(struct intr_frame *f UNUSED)
+void syscall_handler(struct intr_frame *f)
 {
+	thread_current()->user_rsp = f->rsp;
+
 	// 10번이 SYS_WRITE
 	int sys_call = f->R.rax;
 
