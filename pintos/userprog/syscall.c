@@ -475,6 +475,22 @@ sys_halt(void)
 	power_off();
 }
 
+static void
+*sys_mmap(void *addr, size_t length, int writable, int fd, off_t offset){
+	if (addr==NULL || is_kernel_vaddr(addr)){
+		return -1;
+	}
+	if (fd<2 || fd>=ARG_MAX) {
+		return -1;
+	}
+
+	struct file * file = find_file_by_fd(fd);
+	if (file == NULL){
+		return -1;
+	}
+	do_mmap(addr, length, writable, file, offset);
+}
+
 /* The main system call interface */
 void syscall_handler(struct intr_frame *f)
 {
@@ -529,6 +545,8 @@ void syscall_handler(struct intr_frame *f)
 	case SYS_EXEC:
 		f->R.rax = sys_exec((const char *) f->R.rdi);
 		break;
+	case SYS_MMAP:
+		
 	default:
 		sys_exit(-1);
 		break;
