@@ -21,6 +21,7 @@
 #include "threads/init.h"  // power_off 함수
 #include "filesys/file.h"  // file_write 함수
 #include "devices/input.h" //sys_read
+#include "lib/user/syscall.h" // MAP_FAILED
 
 // 평소에는 꺼두기
 #define USER_MEM_DEBUG 0
@@ -475,20 +476,31 @@ sys_halt(void)
 	power_off();
 }
 
-static void
-*sys_mmap(void *addr, size_t length, int writable, int fd, off_t offset){
+static void *
+sys_mmap(void *addr, size_t length, int writable, int fd, off_t offset){
 	if (addr==NULL || is_kernel_vaddr(addr)){
-		return -1;
+		return MAP_FAILED;
 	}
+	//addr가 페이지 단위로 주소를 잘랐을 때, 얼마나 밀려있는지
+	if (pg_ofs(addr)!=0){
+		return MAP_FAILED;
+	}
+	if (length == 0){
+		return MAP_FAILED;
+	}
+	//mmap이니 fd가 2이상, 일반 파일일때만
 	if (fd<2 || fd>=ARG_MAX) {
-		return -1;
+		return MAP_FAILED;
 	}
-
+	//offset이 page 단위로 깔끔하게 정렬되어 있는지
+	if (offset % PGSIZE != 0){
+		return MAP_FAILED;
+	}
 	struct file * file = find_file_by_fd(fd);
 	if (file == NULL){
-		return -1;
+		return MAP_FAILED;
 	}
-	do_mmap(addr, length, writable, file, offset);
+	return do_mmap(addr, length, writable, file, offset);
 }
 
 /* The main system call interface */
