@@ -3,6 +3,7 @@
 #include "vm/vm.h"
 #include "threads/malloc.h"
 #include "threads/mmu.h"
+#include "lib/round.h"
 #include "string.h"
 
 static bool file_backed_swap_in (struct page *page, void *kva);
