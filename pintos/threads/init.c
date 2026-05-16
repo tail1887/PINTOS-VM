@@ -60,9 +60,6 @@ static void run_actions (char **argv);
 static void usage (void);
 
 static void print_stats (void);
-#ifdef VM
-static void run_munmap_test (char **argv);
-#endif
 
 
 int main (void) NO_RETURN;
@@ -256,35 +253,6 @@ run_task (char **argv) {
 	printf ("Execution of '%s' complete.\n", task);
 }
 
-#ifdef VM
-/* Kernel-side smoke test for do_munmap.
- * Run with:  pintos --gdb -- -q munmap-test  */
-static void
-run_munmap_test (char **argv UNUSED) {
-	struct thread *t = thread_current ();
-	supplemental_page_table_init (&t->spt);
-
-	void *va = (void *) 0x20000000;   /* page-aligned user VA */
-
-	/* (a) normal path: alloc a VM_ANON uninit page, then munmap it */
-	bool ok = vm_alloc_page (VM_ANON, va, true);
-	printf ("munmap-test: vm_alloc_page -> %d\n", ok);
-	printf ("munmap-test: before munmap, spt_find=%p\n",
-	        spt_find_page (&t->spt, va));
-
-	do_munmap (va);   /* <-- set GDB breakpoint here */
-
-	printf ("munmap-test: after  munmap, spt_find=%p  (expect 0x0)\n",
-	        spt_find_page (&t->spt, va));
-
-	/* (b) invalid addresses — each should return silently */
-	do_munmap (NULL);
-	do_munmap ((void *) 0xffffffff80000000UL);
-	do_munmap ((void *) 0x30000000);   /* never mapped */
-	printf ("munmap-test: invalid cases returned cleanly\n");
-}
-#endif
-
 /* Executes all of the actions specified in ARGV[]
    up to the null pointer sentinel. */
 static void
@@ -299,9 +267,6 @@ run_actions (char **argv) {
 	/* Table of supported actions. */
 	static const struct action actions[] = {
 		{"run", 2, run_task},
-#ifdef VM
-		{"munmap-test", 1, run_munmap_test},
-#endif
 #ifdef FILESYS
 		{"ls", 1, fsutil_ls},
 		{"cat", 2, fsutil_cat},
