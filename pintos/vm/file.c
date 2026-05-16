@@ -68,22 +68,34 @@ file_backed_swap_out (struct page *page) {
 /* Destory the file backed page. PAGE will be freed by the caller. */
 static void
 file_backed_destroy (struct page *page) {
-	struct frame *f = page->frame;
-	if (f == NULL) {
-		return;
+	struct file_page *file_page = &page->file;
+	struct thread *t = thread_current();
+
+	// dirty bits 확인 + frame 여부 확인
+	if (pml4_is_dirty(t->pml4, page->va) && page->frame) {
+
+		// file_page 정보로 write back
+		void *buffer = page->frame->kva;
+		off_t size = page->file.read_bytes;
+		off_t start = page->file.ofs;
+
+		if (file_write_at(file_page->file, buffer, size, start) < size) { // 아직 file growth 없음
+			return;
+		}
 	}
 
-	struct thread *t = thread_current ();
-	if (t->pml4 != NULL && pml4_get_page (t->pml4, page->va) != NULL)
-		pml4_clear_page (t->pml4, page->va);
+	// 매핑 끊기
+	pml4_clear_page(t->pml4, page->va);
 
-	if (f->kva != NULL) {
-		palloc_free_page (f->kva);
-		f->kva = NULL;
+	if (page->frame) {
+	// frame 메모리 반환
+	palloc_free_page(page->frame->kva);
+	// frame 구조체 반환
+	free(page->frame);
 	}
-	f->page = NULL;
-	page->frame = NULL;
-	free (f);
+
+	// file 닫기
+	return file_close(file_page->file);
 }
 
 static void
@@ -202,4 +214,17 @@ do_mmap (void *addr, size_t length, int writable,
 /* Do the munmap */
 void
 do_munmap (void *addr) {
+	void *va = pg_round_down(addr);
+	struct thread *curr = thread_current();
+	struct supplemental_page_table *spt = &curr->spt;
+	struct page *upage = spt_find_page(spt, va);
+
+	if (!is_user_vaddr(addr) || upage == NULL) {
+		return;
+	}
+	for (int i = 0; i < upage->file.page_cnt; i++) {
+		spt_remove_page(spt, upage);
+		va = va + PGSIZE;
+		upage = spt_find_page(spt, va);
+	}
 }
