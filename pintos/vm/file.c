@@ -37,6 +37,7 @@ file_backed_initializer (struct page *page, enum vm_type type, void *kva) {
 		f->read_bytes = a->read_bytes;
 		f->zero_bytes = a->zero_bytes;
 		f->page_cnt = 0;
+		f->is_mmap_start = false;
 		return true;
 	}
 	return false;

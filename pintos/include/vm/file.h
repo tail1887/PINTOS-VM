@@ -12,6 +12,7 @@ struct file_page {
     size_t read_bytes;
     size_t zero_bytes;
 	size_t page_cnt;
+	bool is_mmap_start;
 };
 
 void vm_file_init (void);
