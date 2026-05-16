@@ -3,11 +3,12 @@
 #include "vm/vm.h"
 #include "threads/malloc.h"
 #include "threads/mmu.h"
+#include "string.h"
 
 static bool file_backed_swap_in (struct page *page, void *kva);
 static bool file_backed_swap_out (struct page *page);
 static void file_backed_destroy (struct page *page);
-static bool mmap_initializer (struct page *page, void *aux);
+static bool mmap_lazy_load (struct page *page, void *aux);
 
 /* DO NOT MODIFY this struct */
 static const struct page_operations file_ops = {
@@ -65,19 +66,25 @@ file_backed_destroy (struct page *page) {
 	free(f);
 }
 
-static bool
-mmap_initializer (struct page *page, void *aux) {
-	struct file_page *file_page = aux;
-	
-	page->file.file = file_page->file;
-	page->file.offset = file_page->offset;
-	page->file.read_bytes = file_page->read_bytes;
-	page->file.zero_bytes = file_page->zero_bytes;
-	page->file.is_mmap_start = file_page->is_mmap_start;
-	page->file.page_cnt = file_page->page_cnt;
+static void free_file_aux(void *aux) {
+	if (aux != NULL)
+		palloc_free_page(aux);
+}
 
-	palloc_free_page(file_page);
-	return true; 
+static bool
+mmap_lazy_load (struct page *page, void *aux) {
+	struct file_page *a = aux;
+	
+	void *kva = page->frame->kva;
+
+	off_t read_bytes = file_read_at(a->file, kva, (off_t)a->read_bytes, a->ofs);
+	if (read_bytes != a->read_bytes){
+		free_file_aux(a);
+		return false;
+	}
+	memset(kva + read_bytes, 0, a->zero_bytes);
+	free_file_aux(a);
+	return true;
 }
 
 /* Do the mmap */
@@ -149,7 +156,7 @@ do_mmap (void *addr, size_t length, int writable,
 		}
 
 		if(!vm_alloc_page_with_initializer(VM_FILE, (uint8_t *)addr + i, writable, 
-													mmap_initializer, file_page)){
+													mmap_lazy_load, file_page)){
 			
 			palloc_free_page(file_page);
 			struct supplemental_page_table *spt = &thread_current()->spt;
