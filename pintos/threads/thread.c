@@ -502,8 +502,7 @@ init_thread (struct thread *t, const char *name, int priority) {
 	// in_donation_list를 false로 초기화한다.
 	t->in_donation_list = false;
 	t->user_rsp = 0;
-}
-
+	}
 /* Chooses and returns the next thread to be scheduled.  Should
    return a thread from the run queue, unless the run queue is
    empty.  (If the running thread can continue running, then it

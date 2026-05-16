@@ -510,6 +510,7 @@ void syscall_handler(struct intr_frame *f)
 	struct thread * cur = thread_current();
 	cur->user_rsp = f->rsp;
 
+	// 10번이 SYS_WRITE
 	int sys_call = f->R.rax;
 
 	switch (sys_call)

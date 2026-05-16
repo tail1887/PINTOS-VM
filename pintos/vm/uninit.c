@@ -69,7 +69,7 @@ uninit_initialize (struct page *page, void *kva) {
  * PAGE will be freed by the caller. */
 static void
 uninit_destroy (struct page *page) {
-	struct uninit_page *u = &page->uninit;
+		struct uninit_page *u = &page->uninit;
 	if (u->aux != NULL) {
 		palloc_free_page(u->aux);
 		u->aux = NULL;
