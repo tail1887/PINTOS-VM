@@ -7,7 +7,6 @@
 static bool file_backed_swap_in (struct page *page, void *kva);
 static bool file_backed_swap_out (struct page *page);
 static void file_backed_destroy (struct page *page);
-static bool mmap_initializer (struct page *page, void *aux);
 
 /* DO NOT MODIFY this struct */
 static const struct page_operations file_ops = {
@@ -65,21 +64,6 @@ file_backed_destroy (struct page *page) {
 	free(f);
 }
 
-static bool
-mmap_initializer (struct page *page, void *aux) {
-	struct file_page *file_page = aux;
-	
-	page->file.file = file_page->file;
-	page->file.offset = file_page->offset;
-	page->file.read_bytes = file_page->read_bytes;
-	page->file.zero_bytes = file_page->zero_bytes;
-	page->file.is_mmap_start = file_page->is_mmap_start;
-	page->file.page_cnt = file_page->page_cnt;
-
-	palloc_free_page(file_page);
-	return true; 
-}
-
 /* Do the mmap */
 void *
 do_mmap (void *addr, size_t length, int writable,
@@ -109,6 +93,10 @@ do_mmap (void *addr, size_t length, int writable,
 	}
 
 	off_t file_size = file_length(mmap_file);
+	if(file_size == 0){
+		file_close(mmap_file);
+		return NULL;
+	}
 	
 	//length를 PGSIZE로 나누고 올림계산, 몇개의 페이지가 필요한지
 	size_t page_cnt = DIV_ROUND_UP(length, PGSIZE);
@@ -148,11 +136,10 @@ do_mmap (void *addr, size_t length, int writable,
 			file_page->page_cnt = 0;
 		}
 
-		if(!vm_alloc_page_with_initializer(VM_FILE, (uint8_t *)addr + i, writable, 
-													mmap_initializer, file_page)){
+		if(!vm_alloc_page_with_initializer(VM_FILE, (uint8_t *)addr + i, writable, NULL, file_page)){
 			
 			palloc_free_page(file_page);
-			struct supplemental_page_table *spt = &thread_current()->spt;
+
 			for(size_t j = 0 ; j < i ; j += PGSIZE){
 				struct page *page = spt_find_page(spt, (uint8_t *)addr + j);
 				if(page != NULL)
