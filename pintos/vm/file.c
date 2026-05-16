@@ -94,7 +94,6 @@ do_mmap (void *addr, size_t length, int writable,
 	//mmap할 위치에 이미 기존 페이지가 존재하는지 검사
 	struct supplemental_page_table *spt = &thread_current ()->spt;
 	size_t check = 0;
-
 	while (check < length) {
 		void *upage = (uint8_t *) addr + check;
 		if (spt_find_page (spt, upage) != NULL) {
@@ -103,17 +102,21 @@ do_mmap (void *addr, size_t length, int writable,
 		check += PGSIZE;
 	}
 	
-	//do_mmap전용 file을 복제후 시작
+	//do_mmap전용 *file을 새로 가져와서 시작, file->pos의 위치가 달라질 수도 있기 때문
 	struct file * mmap_file = file_reopen(file);
 	if (mmap_file == NULL){
 		return NULL;
 	}
+
 	off_t file_size = file_length(mmap_file);
+	
+	//length를 PGSIZE로 나누고 올림계산, 몇개의 페이지가 필요한지
 	size_t page_cnt = DIV_ROUND_UP(length, PGSIZE);
+
 	size_t i = 0;
 	while(i < length){
 		struct file_page *file_page = palloc_get_page(0);
-
+		//file_page가 만들어지지 않았다면, SPT에 넣었던 mmap page를 없애줌
 		if (file_page == NULL){
 			for(size_t j = 0 ; j < i ; j += PGSIZE){
 				struct page *page = spt_find_page(spt, (uint8_t *)addr + j);
