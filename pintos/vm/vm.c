@@ -182,13 +182,13 @@ vm_stack_growth (void *addr) {
 /* Handle the fault on write_protected page */
 static bool
 vm_handle_wp (struct page *page UNUSED) {
+	return false;
 }
 
 /* Return true on success */
 bool
 vm_try_handle_fault (struct intr_frame *f, void *addr,
-		vm_try_handle_fault (struct intr_frame *f , void *addr ,
-		bool user , bool write , bool not_present ) {
+		bool user, bool write, bool not_present) {
 	struct supplemental_page_table *spt = &thread_current ()->spt;
 	struct page *page = NULL;
 	//page_table에 없는지 검사
@@ -301,13 +301,7 @@ supplemental_page_table_copy (struct supplemental_page_table *dst UNUSED,
 		struct supplemental_page_table *src UNUSED) {
 }
 
-/* Free the resource hold by the supplemental page table */
-void
-supplemental_page_table_kill (struct supplemental_page_table *spt UNUSED) {
-	/* TODO: Destroy all the supplemental_page_table hold by thread and
-	 * TODO: writeback all the modified contents to the storage. */
-}
-/* spt kill용 페이지 제거기 */ 
+/* spt kill용 페이지 제거기 */
 static void
 spt_page_destructor (struct hash_elem *e, void *aux UNUSED) {
 	struct page *p = hash_entry(e, struct page, elem);
@@ -320,14 +314,16 @@ supplemental_page_table_kill (struct supplemental_page_table *spt) {
 	/* TODO: Destroy all the supplemental_page_table hold by thread and
 	 * TODO: writeback all the modified contents to the storage. */
 	hash_destroy (&(spt->hash), spt_page_destructor);
+}
+
 /* Returns a hash value for a page based on its user virtual address. */
-	static uint64_t
-	page_hash (const struct hash_elem *e, void *aux UNUSED) {
+static uint64_t
+page_hash (const struct hash_elem *e, void *aux UNUSED) {
 	/* 이 경로로는 쓰기가 불가능하다는 걸 표시하기 위해 const를 사용. */
 	const struct page *page = hash_entry (e, struct page, elem);
 	return hash_bytes (&page->va, sizeof page->va);
-	}
 }
+
 /* Orders pages by user virtual address inside the SPT hash buckets. */
 static bool
 page_less (const struct hash_elem *a, const struct hash_elem *b, void *aux UNUSED) {
