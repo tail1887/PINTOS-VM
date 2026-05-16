@@ -83,7 +83,25 @@ mmap_initializer (struct page *page, void *aux) {
 /* Do the mmap */
 void *
 do_mmap (void *addr, size_t length, int writable,
-		struct file *file, off_t offset) {
+		struct file *file, off_t ofs) {
+
+	//끝 주소도 user영역인지 검사, 주소계산 overflow 확인
+	uint8_t *start = addr;
+	uint8_t *end = start + length - 1;
+	if (end < start || !is_user_vaddr (end)) {
+		return NULL;
+	}
+	//mmap할 위치에 이미 기존 페이지가 존재하는지 검사
+	struct supplemental_page_table *spt = &thread_current ()->spt;
+	size_t check = 0;
+
+	while (check < length) {
+		void *upage = (uint8_t *) addr + check;
+		if (spt_find_page (spt, upage) != NULL) {
+			return NULL;
+		}
+		check += PGSIZE;
+	}
 	
 	//do_mmap전용 file을 복제후 시작
 	struct file * mmap_file = file_reopen(file);
@@ -97,25 +115,25 @@ do_mmap (void *addr, size_t length, int writable,
 		struct file_page *file_page = palloc_get_page(0);
 
 		if (file_page == NULL){
-			struct supplemental_page_table *spt = &thread_current()->spt;
 			for(size_t j = 0 ; j < i ; j += PGSIZE){
 				struct page *page = spt_find_page(spt, (uint8_t *)addr + j);
 				if(page != NULL)
 					spt_remove_page(spt, page);
 			}
+			file_close(mmap_file);
 			return NULL;
 		}
 
 		size_t page_left = length - i < PGSIZE ? length - i : PGSIZE;
 		size_t file_left = 0;
-		if (offset + i < file_size)
-			file_left = file_size - (offset + i);
+		if (ofs + i < file_size)
+			file_left = file_size - (ofs + i);
 
 		size_t read_bytes = file_left < page_left ? file_left : page_left;
 		size_t zero_bytes = PGSIZE - read_bytes;
 
 		file_page->file = mmap_file;
-		file_page->offset = offset + i;
+		file_page->ofs = ofs + i;
 		file_page->read_bytes = read_bytes;
 		file_page->zero_bytes = zero_bytes;
 		//mmap한 첫번째 페이지에 몇개의 페이지를 mmap했는지 저장
@@ -137,6 +155,7 @@ do_mmap (void *addr, size_t length, int writable,
 				if(page != NULL)
 					spt_remove_page(spt, page);
 			}
+			file_close(mmap_file);
 			return NULL;
 		}
 		
