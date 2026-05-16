@@ -171,13 +171,29 @@ do_mmap (void *addr, size_t length, int writable,
 			file_close (mmap_file);
 			return NULL;
 		}
+		//이번 page에서 mmap 요청 기준으로 처리해야 할 남은 byte 수
+		size_t page_left;
 
-		size_t page_left = length - i < PGSIZE ? length - i : PGSIZE;
+		if (length - i < PGSIZE) {
+			page_left = length - i;
+		} else {
+			page_left = PGSIZE;
+		}
+		//현재 파일 offset부터 파일 끝까지 실제로 읽을 수 있는 남은 byte 수
 		size_t file_left = 0;
-		if (ofs + i < file_size)
-			file_left = file_size - (ofs + i);
 
-		size_t read_bytes = file_left < page_left ? file_left : page_left;
+		if (ofs + i < file_size) {
+			file_left = file_size - (ofs + i);
+		}
+
+		size_t read_bytes;
+
+		if (file_left < page_left) {
+			read_bytes = file_left;
+		} else {
+			read_bytes = page_left;
+		}
+
 		size_t zero_bytes = PGSIZE - read_bytes;
 
 		file_page->file = mmap_file;
