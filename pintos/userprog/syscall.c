@@ -477,7 +477,7 @@ sys_halt(void)
 }
 
 static void *
-sys_mmap(void *addr, size_t length, int writable, int fd, off_t offset){
+sys_mmap(void *addr, size_t length, int writable, int fd, off_t ofs){
 	if (addr==NULL || is_kernel_vaddr(addr)){
 		return MAP_FAILED;
 	}
@@ -493,14 +493,14 @@ sys_mmap(void *addr, size_t length, int writable, int fd, off_t offset){
 		return MAP_FAILED;
 	}
 	//offset이 page 단위로 깔끔하게 정렬되어 있는지
-	if (offset % PGSIZE != 0){
+	if (ofs % PGSIZE != 0){
 		return MAP_FAILED;
 	}
 	struct file * file = find_file_by_fd(fd);
 	if (file == NULL){
 		return MAP_FAILED;
 	}
-	return do_mmap(addr, length, writable, file, offset);
+	return do_mmap(addr, length, writable, file, ofs);
 }
 
 /* The main system call interface */
