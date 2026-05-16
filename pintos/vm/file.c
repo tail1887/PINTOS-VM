@@ -4,6 +4,7 @@
 #include "threads/malloc.h"
 #include "threads/mmu.h"
 #include "string.h"
+#include "round.h"
 
 static bool file_backed_swap_in (struct page *page, void *kva);
 static bool file_backed_swap_out (struct page *page);

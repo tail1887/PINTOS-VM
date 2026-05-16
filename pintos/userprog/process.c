@@ -701,8 +701,11 @@ process_exec (void *f_name) {
 	- 권한 관리: 각 단계의 엔트리마다 "이 영역은 읽기 전용인가?", "유저가 접근 가능한가?" 같은 권한 비트를 심어둘 수 있다. 하드웨어가 주소를 찾아 내려가다가 권한이 없는 층을 발견하면 즉시 차단(Segmentation Fault 등)한다.*/
 	
 	process_cleanup ();
-	
-	// TODO: Argument 분리해서 파일명만 load()로 넘기기 
+#ifdef VM
+	supplemental_page_table_init (&thread_current ()->spt);
+#endif
+
+	// TODO: Argument 분리해서 파일명만 load()로 넘기기
 	// 기능 2: 사용자 스택 레이아웃 구성 부분 시작 (ABI 계약)
 
 	// build_user_stack_args()가 계산한 argv 주소를, 다음 단계인 set_user_entry_registers()에 전달하기 위한 중간 저장소
@@ -925,7 +928,7 @@ struct ELF64_PHDR {
 static bool setup_stack (struct intr_frame *if_);
 static bool validate_segment (const struct Phdr *, struct file *);
 static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
-		uint32_t read_bytes, uint32_t zero_bytes,
+		uint64_t read_bytes, uint64_t zero_bytes,
 		bool writable);
 
 
