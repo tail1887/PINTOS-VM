@@ -3,10 +3,12 @@
 #include "vm/vm.h"
 #include "threads/malloc.h"
 #include "threads/mmu.h"
+#include "string.h"
 
 static bool file_backed_swap_in (struct page *page, void *kva);
 static bool file_backed_swap_out (struct page *page);
 static void file_backed_destroy (struct page *page);
+static bool mmap_lazy_load (struct page *page, void *aux);
 
 /* DO NOT MODIFY this struct */
 static const struct page_operations file_ops = {
@@ -54,7 +56,7 @@ file_backed_destroy (struct page *page) {
 	struct thread *t = thread_current ();
 	if (t->pml4 != NULL && pml4_get_page (t->pml4, page->va) != NULL)
 		pml4_clear_page (t->pml4, page->va);
-	
+
 	if(f->kva != NULL) {
 		palloc_free_page(f->kva);
 		f->kva = NULL;
@@ -62,6 +64,27 @@ file_backed_destroy (struct page *page) {
 	f->page = NULL;
 	page->frame = NULL;
 	free(f);
+}
+
+static void free_file_aux(void *aux) {
+	if (aux != NULL)
+		palloc_free_page(aux);
+}
+
+static bool
+mmap_lazy_load (struct page *page, void *aux) {
+	struct file_page *a = aux;
+
+	void *kva = page->frame->kva;
+
+	off_t read_bytes = file_read_at(a->file, kva, (off_t)a->read_bytes, a->ofs);
+	if (read_bytes != a->read_bytes){
+		free_file_aux(a);
+		return false;
+	}
+	memset(kva + read_bytes, 0, a->zero_bytes);
+	free_file_aux(a);
+	return true;
 }
 
 /* Do the mmap */
@@ -85,7 +108,7 @@ do_mmap (void *addr, size_t length, int writable,
 		}
 		check += PGSIZE;
 	}
-	
+
 	//do_mmap전용 *file을 새로 가져와서 시작, file->pos의 위치가 달라질 수도 있기 때문
 	struct file * mmap_file = file_reopen(file);
 	if (mmap_file == NULL){
@@ -97,7 +120,7 @@ do_mmap (void *addr, size_t length, int writable,
 		file_close(mmap_file);
 		return NULL;
 	}
-	
+
 	//length를 PGSIZE로 나누고 올림계산, 몇개의 페이지가 필요한지
 	size_t page_cnt = DIV_ROUND_UP(length, PGSIZE);
 
@@ -136,8 +159,9 @@ do_mmap (void *addr, size_t length, int writable,
 			file_page->page_cnt = 0;
 		}
 
-		if(!vm_alloc_page_with_initializer(VM_FILE, (uint8_t *)addr + i, writable, NULL, file_page)){
-			
+		if(!vm_alloc_page_with_initializer(VM_FILE, (uint8_t *)addr + i, writable,
+													mmap_lazy_load, file_page)){
+
 			palloc_free_page(file_page);
 
 			for(size_t j = 0 ; j < i ; j += PGSIZE){
@@ -148,7 +172,7 @@ do_mmap (void *addr, size_t length, int writable,
 			file_close(mmap_file);
 			return NULL;
 		}
-		
+
 		i += PGSIZE;
 	}
 	return addr;
