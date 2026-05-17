@@ -138,10 +138,29 @@ vm_get_victim (void) {
  * Return NULL on error.*/
 static struct frame *
 vm_evict_frame (void) {
-	struct frame *victim UNUSED = vm_get_victim ();
-	/* TODO: swap out the victim and return the evicted frame. */
+	//victim할 frame 가져오기
+	struct frame *victim  = vm_get_victim ();
+	if (victim == NULL) {
+		return NULL;
+	}
+	struct page *page = victim->page;
+	if (page == NULL) {
+		return NULL;
+	}
+	//victim의 page를 swap_out
+	if (!swap_out(page)) {
+		return NULL;
+	}
+	//pml4에서 페이지와 프레임의 매핑 제거
+	struct thread *cur = thread_current();
+	pml4_clear_page(cur->pml4, page->va);
+	//swap_out은 성공했지만, pml4 매핑 제거가 실패하면 꼬일 수 있으니 ASSERT로 해줌
+	ASSERT(pml4_get_page(cur->pml4, page->va) == NULL);
+
+	victim->page = NULL;
+	page->frame = NULL;
 	
-	return NULL;
+	return victim;
 }
 
 /* palloc() and get frame. If there is no available page, evict the page
