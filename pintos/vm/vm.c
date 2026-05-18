@@ -176,18 +176,22 @@ vm_get_frame (void) {
 	struct frame *frame = NULL;
 	frame = malloc(sizeof(*frame));
 	ASSERT(frame != NULL);
+	
 	/* TODO: Fill this function. */
 	frame->kva = palloc_get_page(PAL_USER);
 	if(frame->kva == NULL) {
 		free(frame);
 		frame = vm_evict_frame();
+		if (frame == NULL){
+			return NULL;
+		}
+	} else {
+		list_push_back(&frame_table, &frame->elem);
 	}
 
 	ASSERT (frame != NULL);
 	frame->page = NULL;
 	ASSERT (frame->page == NULL);
-
-	list_push_back(&frame_table, &frame->elem);
 
 	return frame;
 }
