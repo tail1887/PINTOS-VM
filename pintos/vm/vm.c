@@ -187,6 +187,8 @@ vm_get_frame (void) {
 	frame->page = NULL;
 	ASSERT (frame->page == NULL);
 
+	list_push_back(&frame_table, &frame->elem);
+
 	return frame;
 }
 
