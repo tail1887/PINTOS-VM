@@ -6,9 +6,11 @@
 #include "vm/inspect.h"
 #include "threads/mmu.h"
 #include "threads/thread.h"
-#include "threads/synch.h";
+#include "threads/synch.h"
 
-
+static struct list frame_table;
+static struct lock frame_table_lock;
+static struct list_elem *clock_hand;
 /* Initializes the virtual memory subsystem by invoking each subsystem's
  * intialize codes. */
 void
@@ -48,9 +50,6 @@ static uint64_t page_hash (const struct hash_elem *e, void *aux);
 static bool page_less (const struct hash_elem *a,
 		const struct hash_elem *b, void *aux);
 static bool vm_can_stack_growth(struct intr_frame *f, void *addr, bool user);
-static struct list frame_table;
-static struct lock frame_table_lock;
-static struct list_elem *clock_hand;
 
 /* Create the pending page object with initializer. If you want to create a
  * page, do not create it directly and make it through this function or
@@ -157,7 +156,7 @@ vm_frame_table_remove (struct frame *frame) {
 	list_remove(&frame->elem);
 	frame->in_frame_table = false;
 
-	if(listg_empty (&frame_table))
+	if(list_empty (&frame_table))
 		clock_hand = NULL;
 
 	lock_release (&frame_table_lock);
@@ -184,9 +183,35 @@ frame_table_next (void) {
 static struct frame *
 vm_get_victim (void) {
 	struct frame *victim = NULL;
+	void *va = NULL;
+	uint64_t *pml4 = NULL;
+
+	lock_acquire(&frame_table_lock);
+	int count = (int)list_size(&frame_table) * 2;
 	 /* TODO: The policy for eviction is up to you. */
-	
-	return victim;
+	for(int i = 0; i < count; i++){
+		victim = frame_table_next();
+		if (victim == NULL){
+			lock_release(&frame_table_lock);
+			return NULL;
+		}
+		if (victim->page == NULL || victim->owner == NULL)
+			continue;
+
+		va = victim->page->va;
+		pml4 = victim->owner->pml4;
+		if (va == NULL || pml4 == NULL)
+			continue;
+
+		if(pml4_is_accessed(pml4, va)){
+			pml4_set_accessed(pml4, va, false);
+			continue;
+		}
+		lock_release(&frame_table_lock);
+		return victim;
+	}
+	lock_release(&frame_table_lock);
+	return NULL;
 }
 
 /* Evict one page and return the corresponding frame.
@@ -213,7 +238,13 @@ vm_get_frame (void) {
 	frame->kva = palloc_get_page(PAL_USER);
 	if(frame->kva == NULL) {
 		free(frame);
-		frame = vm_evict_frame();
+	 	frame = vm_evict_frame();
+	}
+	else{
+		frame->page = NULL;
+		frame->owner = NULL;
+		frame->in_frame_table = false;
+		frame_table_add(frame);
 	}
 
 	ASSERT (frame != NULL);
