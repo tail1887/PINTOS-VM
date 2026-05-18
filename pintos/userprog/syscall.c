@@ -22,6 +22,7 @@
 #include "filesys/file.h"  // file_write 함수
 #include "devices/input.h" //sys_read
 #include "lib/user/syscall.h" // MAP_FAILED
+#include "vm/vm.h" //buffer page검사
 
 // 평소에는 꺼두기
 #define USER_MEM_DEBUG 0
@@ -61,6 +62,9 @@ static void validate_user_ptr(const void *uaddr);
 static void validate_user_buffer(const void *buffer, size_t size);
 static void validate_user_string(const char *str);
 static struct lock filesys_lock;
+static bool is_writable_user_buffer (void *buffer, size_t size);
+
+
 
 /* System call.
  *
@@ -193,6 +197,30 @@ validate_user_string(const char *str)
 	}
 }
 
+//버퍼의 page들이 쓰기권한이 있는지 확인
+static bool
+is_writable_user_buffer (void *buffer, size_t size) {
+	struct supplemental_page_table *spt = &thread_current ()->spt;
+
+	if (size == 0)
+		return true;
+
+	uint8_t *start = pg_round_down (buffer);
+	uint8_t *end = pg_round_down ((uint8_t *) buffer + size - 1);
+
+	for (uint8_t *addr = start; addr <= end; addr += PGSIZE) {
+		struct page *page = spt_find_page (spt, addr);
+
+		if (page == NULL)
+			return false;
+
+		if (!page->writable)
+			return false;
+	}
+
+	return true;
+}
+
 // 기본 헬퍼 함수
 static struct file *find_file_by_fd(int fd)
 {
@@ -288,6 +316,8 @@ static int sys_read(int fd, void *buffer, unsigned size)
 		return -1;
 	if (fd >= ARG_MAX)
 		return -1;
+	if (!is_writable_user_buffer(buffer, size))
+		sys_exit(-1);
 
 	if (fd == 0) // 표준입력,  size만큼 반복, 문자 하나를 읽어서 버퍼에 저장후, size반환
 	{
