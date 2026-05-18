@@ -156,10 +156,10 @@ vm_frame_table_remove (struct frame *frame) {
 	list_remove(&frame->elem);
 	frame->in_frame_table = false;
 
-	if(list_empty (&frame_table))
+	if(list_empty(&frame_table))
 		clock_hand = NULL;
 
-	lock_release (&frame_table_lock);
+	lock_release(&frame_table_lock);
 }
 
 static struct frame *
@@ -167,13 +167,13 @@ frame_table_next (void) {
 	if (list_empty (&frame_table))
 		return NULL;
 
-	if(clock_hand == NULL || clock_hand ==list_end (&frame_table))
+	if(clock_hand == NULL || clock_hand == list_end(&frame_table))
 		clock_hand = list_begin(&frame_table);
 
 	struct frame *frame = list_entry(clock_hand, struct frame, elem);
 
-	clock_hand =list_next (clock_hand);
-	if(clock_hand == list_end (&frame_table))
+	clock_hand = list_next(clock_hand);
+	if(clock_hand == list_end(&frame_table))
 		clock_hand= list_begin(&frame_table);
 
 	return frame;

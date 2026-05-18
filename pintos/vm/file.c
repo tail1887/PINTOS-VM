@@ -5,6 +5,7 @@
 #include "threads/mmu.h"
 #include "string.h"
 #include "round.h"
+#include "threads/thread.h"
 
 static bool file_backed_swap_in (struct page *page, void *kva);
 static bool file_backed_swap_out (struct page *page);
@@ -62,7 +63,23 @@ file_backed_swap_in (struct page *page, void *kva) {
 /* Swap out the page by writeback contents to the file. */
 static bool
 file_backed_swap_out (struct page *page) {
-	struct file_page *file_page UNUSED = &page->file;
+	struct file_page *file_page = &page->file;
+	struct frame *frame = page->frame;
+
+	if (frame == NULL || frame->kva == NULL)
+		return false;
+
+	uint64_t *pml4 = frame->owner != NULL ? frame->owner->pml4 : thread_current ()-> pml4;
+
+	if (pml4_is_dirty (pml4, page->va)){
+		off_t written = file_write_at(file_page->file, frame->kva, 
+						(off_t) file_page->read_bytes, file_page->ofs);
+
+		if(written != (off_t) file_page->read_bytes)
+			return false;
+		pml4_set_dirty (pml4, page->va, false);
+	}
+
 	return true;
 }
 
