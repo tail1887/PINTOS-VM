@@ -122,23 +122,14 @@ is_valid_user_ptr(const void *uaddr)
 {
 
 	// NULL 포인터를 실패 처리한다.
-	if (uaddr == NULL)
-	{
+	if (uaddr == NULL) {
 		user_mem_debug("invalid user ptr: NULL\n");
 		return false;
 	}
-
+	
 	// is_user_vaddr()로 커널 주소를 차단한다.
-	if (!is_user_vaddr((void *)uaddr))
-	{
+	if (!is_user_vaddr((void *)uaddr)) {
 		user_mem_debug("invalid user ptr: kernel addr %p\n", uaddr);
-		return false;
-	}
-
-	// 현재 thread의 page table에서 매핑 여부를 확인한다.
-	if (pml4_get_page(thread_current()->pml4, (void *)uaddr) == NULL)
-	{
-		user_mem_debug("invalid user ptr: unmapped %p\n", uaddr);
 		return false;
 	}
 
@@ -211,8 +202,16 @@ is_writable_user_buffer (void *buffer, size_t size) {
 	for (uint8_t *addr = start; addr <= end; addr += PGSIZE) {
 		struct page *page = spt_find_page (spt, addr);
 
-		if (page == NULL)
-			return false;
+		if (page == NULL) {
+			uintptr_t va = (uintptr_t) addr;
+			uintptr_t stack_limit = (uintptr_t) USER_STACK - (1 << 20);
+			uintptr_t user_rsp = (uintptr_t) thread_current ()->user_rsp;
+			if (va < stack_limit || va >= (uintptr_t) USER_STACK)
+				return false;
+			if (va < user_rsp - 8)
+				return false;
+			continue;
+		}
 
 		if (!page->writable)
 			return false;
