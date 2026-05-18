@@ -112,6 +112,7 @@ mmap_lazy_load (struct page *page, void *aux) {
 	void *kva = page->frame->kva;
 
 	off_t read_bytes = file_read_at (a->file, kva, (off_t) a->read_bytes, a->ofs);
+
 	if (read_bytes != a->read_bytes) {
 		free_file_aux (a);
 		return false;
@@ -239,9 +240,12 @@ do_munmap (void *addr) {
 	if (!is_user_vaddr(addr) || upage == NULL) {
 		return;
 	}
-	for (int i = 0; i < upage->file.page_cnt; i++) {
+	size_t page_cnt = upage->file.page_cnt;
+	for (size_t i = 0; i < page_cnt; i++) {
+		if (upage == NULL)
+			break;
 		spt_remove_page(spt, upage);
-		va = va + PGSIZE;
+		va = (uint8_t *) va + PGSIZE;
 		upage = spt_find_page(spt, va);
 	}
 }
