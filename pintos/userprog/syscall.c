@@ -24,6 +24,7 @@
 #include "lib/user/syscall.h" // MAP_FAILED
 #include "vm/vm.h" //buffer page검사
 
+
 // 평소에는 꺼두기
 #define USER_MEM_DEBUG 0
 #if USER_MEM_DEBUG
@@ -139,7 +140,13 @@ is_valid_user_ptr(const void *uaddr)
 	if (pml4_get_page(thread_current()->pml4, (void *)uaddr) == NULL)
 	{
 		user_mem_debug("invalid user ptr: unmapped %p\n", uaddr);
+		if (vm_can_stack_growth(&thread_current()->tf, uaddr, false)){
+			if (vm_stack_growth(uaddr)){
+				return true;
+			}
+		} else {
 		return false;
+		}
 	}
 
 	return true;
@@ -211,8 +218,13 @@ is_writable_user_buffer (void *buffer, size_t size) {
 	for (uint8_t *addr = start; addr <= end; addr += PGSIZE) {
 		struct page *page = spt_find_page (spt, addr);
 
-		if (page == NULL)
-			return false;
+		if (page == NULL){
+			if (vm_can_stack_growth(&thread_current()->tf, addr, false)){
+				return vm_stack_growth(addr);
+			} else {
+				return false;
+			}
+		}
 
 		if (!page->writable)
 			return false;
