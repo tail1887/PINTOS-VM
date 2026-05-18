@@ -24,6 +24,7 @@
 #include "lib/user/syscall.h" // MAP_FAILED
 #include "vm/vm.h" //buffer page검사
 
+
 // 평소에는 꺼두기
 #define USER_MEM_DEBUG 0
 #if USER_MEM_DEBUG
@@ -211,6 +212,7 @@ is_writable_user_buffer (void *buffer, size_t size) {
 			if (va < user_rsp - 8)
 				return false;
 			continue;
+
 		}
 
 		if (!page->writable)
