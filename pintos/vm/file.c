@@ -43,6 +43,7 @@ file_backed_initializer (struct page *page, enum vm_type type, void *kva) {
 	f->ofs = a->ofs;
 	f->read_bytes = a->read_bytes;
 	f->zero_bytes = a->zero_bytes;
+	/* Exec segment aux has no mmap fields; page is PAL_ZERO so these read as 0. */
 	f->page_cnt = a->page_cnt;
 	f->is_mmap_start = a->is_mmap_start;
 	return true;
@@ -106,8 +107,10 @@ file_backed_destroy (struct page *page) {
 	pml4_clear_page(t->pml4, page->va);
 
 	if (page->frame != NULL) {
-		palloc_free_page (page->frame->kva);
-		free (page->frame);
+		struct frame *f = page->frame;
+		vm_frame_table_remove (f);
+		palloc_free_page (f->kva);
+		free (f);
 		page->frame = NULL;
 	}
 

@@ -269,8 +269,9 @@ static struct frame *
 vm_get_frame (void) {
 
 	struct frame *frame = NULL;
-	frame = malloc(sizeof(*frame));
-	ASSERT(frame != NULL);
+	frame = malloc (sizeof *frame);
+	if (frame == NULL)
+		return NULL;
 	
 	/* TODO: Fill this function. */
 	frame->kva = palloc_get_page(PAL_USER);
@@ -401,37 +402,45 @@ vm_claim_page (void *va) {
 	return vm_do_claim_page (page);
 }
 
+/* Roll back a failed claim. Reused (evicted) frames stay in the table. */
+static void
+vm_undo_failed_claim (struct frame *frame, struct page *page,
+		struct thread *prev_owner) {
+	page->frame = NULL;
+	frame->page = NULL;
+	frame->owner = prev_owner;
+	if (prev_owner != NULL)
+		return;
+	vm_frame_table_remove (frame);
+	palloc_free_page (frame->kva);
+	free (frame);
+}
+
 /* Claim the PAGE and set up the mmu. */
 static bool
 vm_do_claim_page (struct page *page) {
 	struct frame *frame = vm_get_frame ();
 	if (frame == NULL)
 		return false;
-	/* Set links */
+	/* Evicted frames keep prev_owner; new frames have owner == NULL. */
+	struct thread *prev_owner = frame->owner;
 	frame->page = page;
-	frame->owner = thread_current();
+	frame->owner = thread_current ();
 	page->frame = frame;
 
 	/* TODO: Insert page table entry to map page's VA to frame's PA. */
-	void * upage = page->va;
-	void * kpage = pg_round_down(frame->kva);
+	void *upage = page->va;
+	void *kpage = pg_round_down (frame->kva);
 
-	if (!pml4_set_page(thread_current()->pml4, upage, kpage, page->writable)){
-		frame->page = NULL;
-		page->frame = NULL;
-		vm_frame_table_remove(frame);
-		palloc_free_page(frame->kva);
-		free(frame);
+	if (!pml4_set_page (thread_current ()->pml4, upage, kpage,
+			page->writable)) {
+		vm_undo_failed_claim (frame, page, prev_owner);
 		return false;
 	}
-	
+
 	if (!swap_in (page, frame->kva)) {
 		pml4_clear_page (thread_current ()->pml4, upage);
-		frame->page = NULL;
-		page->frame = NULL;
-		vm_frame_table_remove (frame);
-		palloc_free_page (frame->kva);
-		free (frame);
+		vm_undo_failed_claim (frame, page, prev_owner);
 		return false;
 	}
 	return true;
