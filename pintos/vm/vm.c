@@ -6,23 +6,26 @@
 #include "vm/inspect.h"
 #include "threads/mmu.h"
 #include "threads/thread.h"
-#include "lib/kernel/list.h"
+#include "threads/synch.h"
 
 static struct list frame_table;
-
+static struct lock frame_table_lock;
+static struct list_elem *clock_hand;
 /* Initializes the virtual memory subsystem by invoking each subsystem's
  * intialize codes. */
 void
 vm_init (void) {
 	vm_anon_init ();
 	vm_file_init ();
-	list_init(&frame_table);
 #ifdef EFILESYS  /* For project 4 */
 	pagecache_init ();
 #endif
 	register_inspect_intr ();
 	/* DO NOT MODIFY UPPER LINES. */
 	/* TODO: Your code goes here. */
+	list_init (&frame_table);
+	lock_init (&frame_table_lock);
+	clock_hand = NULL;
 }
 
 /* Get the type of the page. This function is useful if you want to know the
@@ -46,7 +49,6 @@ static struct frame *vm_evict_frame (void);
 static uint64_t page_hash (const struct hash_elem *e, void *aux);
 static bool page_less (const struct hash_elem *a,
 		const struct hash_elem *b, void *aux);
-static bool vm_can_stack_growth(struct intr_frame *f, void *addr, bool user);
 
 /* Create the pending page object with initializer. If you want to create a
  * page, do not create it directly and make it through this function or
@@ -128,13 +130,87 @@ spt_remove_page (struct supplemental_page_table *spt, struct page *page) {
 	vm_dealloc_page (page);
 }
 
+static void
+frame_table_add (struct frame *frame){
+	lock_acquire (&frame_table_lock);
+	list_push_back (&frame_table, &frame->elem);
+	frame->in_frame_table = true;
+	if (clock_hand == NULL)
+		clock_hand = list_begin (&frame_table);
+	lock_release (&frame_table_lock);
+}
+
+void
+vm_frame_table_remove (struct frame *frame) {
+	if(frame == NULL || !frame->in_frame_table)
+		return;
+	lock_acquire(&frame_table_lock);
+
+	if (clock_hand == &frame->elem) {
+		clock_hand = list_next (clock_hand);
+		if (clock_hand == list_end (&frame_table))
+			clock_hand = list_begin (&frame_table);
+	}
+
+	list_remove(&frame->elem);
+	frame->in_frame_table = false;
+
+	if(list_empty(&frame_table))
+		clock_hand = NULL;
+
+	lock_release(&frame_table_lock);
+}
+
+static struct frame *
+frame_table_next (void) {
+	if (list_empty (&frame_table))
+		return NULL;
+
+	if(clock_hand == NULL || clock_hand == list_end(&frame_table))
+		clock_hand = list_begin(&frame_table);
+
+	struct frame *frame = list_entry(clock_hand, struct frame, elem);
+
+	clock_hand = list_next(clock_hand);
+	if(clock_hand == list_end(&frame_table))
+		clock_hand= list_begin(&frame_table);
+
+	return frame;
+}
+
 /* Get the struct frame, that will be evicted. */
 static struct frame *
 vm_get_victim (void) {
 	struct frame *victim = NULL;
-	 /* TODO: The policy for eviction is up to you. */
+	void *va = NULL;
+	uint64_t *pml4 = NULL;
 
-	return victim;
+	lock_acquire(&frame_table_lock);
+	int count = (int)list_size(&frame_table) * 2;
+	 /* TODO: The policy for eviction is up to you. */
+	for(int i = 0; i < count; i++){
+		victim = frame_table_next();
+		if (victim == NULL){
+			lock_release(&frame_table_lock);
+			return NULL;
+		}
+		if (victim->page == NULL || victim->owner == NULL)
+			continue;
+
+		va = victim->page->va;
+		pml4 = victim->owner->pml4;
+		if (va == NULL || pml4 == NULL)
+			continue;
+
+		if(pml4_is_accessed(pml4, va)){
+			pml4_set_accessed(pml4, va, false);
+			continue;
+		}
+		lock_release(&frame_table_lock);
+		return victim;
+	}
+	lock_release(&frame_table_lock);
+	return NULL;
 }
 
 /* Evict one page and return the corresponding frame.
@@ -154,11 +230,10 @@ vm_evict_frame (void) {
 	if (!swap_out(page)) {
 		return NULL;
 	}
-	//pml4에서 페이지와 프레임의 매핑 제거
-	struct thread *cur = thread_current();
-	pml4_clear_page(cur->pml4, page->va);
-	//swap_out은 성공했지만, pml4 매핑 제거가 실패하면 꼬일 수 있으니 ASSERT로 해줌
-	ASSERT(pml4_get_page(cur->pml4, page->va) == NULL);
+	/* Victim may belong to another process. */
+	struct thread *owner = victim->owner != NULL ? victim->owner : thread_current ();
+	pml4_clear_page (owner->pml4, page->va);
+	ASSERT (pml4_get_page (owner->pml4, page->va) == NULL);
 
 	victim->page = NULL;
 	page->frame = NULL;
@@ -179,14 +254,16 @@ vm_get_frame (void) {
 	
 	/* TODO: Fill this function. */
 	frame->kva = palloc_get_page(PAL_USER);
-	if(frame->kva == NULL) {
-		free(frame);
-		frame = vm_evict_frame();
-		if (frame == NULL){
+	if (frame->kva == NULL) {
+		free (frame);
+		frame = vm_evict_frame ();
+		if (frame == NULL)
 			return NULL;
-		}
 	} else {
-		list_push_back(&frame_table, &frame->elem);
+		frame->page = NULL;
+		frame->owner = NULL;
+		frame->in_frame_table = false;
+		frame_table_add (frame);
 	}
 
 	ASSERT (frame != NULL);
@@ -197,18 +274,20 @@ vm_get_frame (void) {
 }
 
 /* Growing the stack. */
-static bool
+bool
 vm_stack_growth (void *addr) {
 	addr = pg_round_down(addr);
-	bool succ = vm_alloc_page_with_initializer(VM_ANON, addr, true, NULL, NULL);
-	struct page *page = spt_find_page(&thread_current()->spt, addr);
-	if (!succ || page == NULL) {
+
+	if (!vm_alloc_page_with_initializer(VM_ANON, addr, true, NULL, NULL))
 		return false;
-	}
-	if (vm_do_claim_page(page)){
+
+	if (vm_claim_page(addr))
 		return true;
-	}
-	spt_remove_page(&thread_current()->spt, page);
+
+	struct supplemental_page_table *spt = &thread_current()->spt;
+	struct page *page = spt_find_page(spt, addr);
+	if (page != NULL)
+		spt_remove_page(spt, page);
 	return false;
 }
 
@@ -249,7 +328,7 @@ vm_try_handle_fault (struct intr_frame *f, void *addr,
 }
 
 //스택그로스 검사 헬퍼함수
-static bool
+bool
 vm_can_stack_growth (struct intr_frame *f, void *addr, bool user){
 	//user모드 fault인지, kernel모드 fault인지 분리해서 검사
 	uintptr_t va = (uintptr_t) addr;
@@ -310,15 +389,32 @@ vm_do_claim_page (struct page *page) {
 	ASSERT(frame != NULL);
 	/* Set links */
 	frame->page = page;
+	frame->owner = thread_current();
 	page->frame = frame;
 
 	/* TODO: Insert page table entry to map page's VA to frame's PA. */
 	void * upage = page->va;
 	void * kpage = pg_round_down(frame->kva);
 
-	if (!pml4_set_page(thread_current()->pml4, upage, kpage, page->writable))
+	if (!pml4_set_page(thread_current()->pml4, upage, kpage, page->writable)){
+		frame->page = NULL;
+		page->frame = NULL;
+		vm_frame_table_remove(frame);
+		palloc_free_page(frame->kva);
+		free(frame);
 		return false;
-	return swap_in (page, frame->kva);
+	}
+	
+	if (!swap_in (page, frame->kva)) {
+		pml4_clear_page (thread_current ()->pml4, upage);
+		frame->page = NULL;
+		page->frame = NULL;
+		vm_frame_table_remove (frame);
+		palloc_free_page (frame->kva);
+		free (frame);
+		return false;
+	}
+	return true;
 }
 
 /* Initialize new supplemental page table */

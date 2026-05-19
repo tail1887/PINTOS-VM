@@ -22,6 +22,8 @@
 #include "filesys/file.h"  // file_write 함수
 #include "devices/input.h" //sys_read
 #include "lib/user/syscall.h" // MAP_FAILED
+#include "vm/vm.h" //buffer page검사
+
 
 // 평소에는 꺼두기
 #define USER_MEM_DEBUG 0
@@ -47,6 +49,8 @@ static unsigned sys_tell(int fd);
 static int sys_exec(const char *cmd_line); // 실행파일 선언
 static void sys_halt(void);
 void sys_exit(int status);
+static void *sys_mmap(void *addr, size_t length, int writable, int fd, off_t ofs);
+static void sys_munmap(void *addr);
 
 // 기본 헬퍼 함수
 static int fd_alloc(struct file *file);
@@ -61,6 +65,9 @@ static void validate_user_ptr(const void *uaddr);
 static void validate_user_buffer(const void *buffer, size_t size);
 static void validate_user_string(const char *str);
 static struct lock filesys_lock;
+static bool is_writable_user_buffer (void *buffer, size_t size);
+
+
 
 /* System call.
  *
@@ -118,23 +125,14 @@ is_valid_user_ptr(const void *uaddr)
 {
 
 	// NULL 포인터를 실패 처리한다.
-	if (uaddr == NULL)
-	{
+	if (uaddr == NULL) {
 		user_mem_debug("invalid user ptr: NULL\n");
 		return false;
 	}
-
+	
 	// is_user_vaddr()로 커널 주소를 차단한다.
-	if (!is_user_vaddr((void *)uaddr))
-	{
+	if (!is_user_vaddr((void *)uaddr)) {
 		user_mem_debug("invalid user ptr: kernel addr %p\n", uaddr);
-		return false;
-	}
-
-	// 현재 thread의 page table에서 매핑 여부를 확인한다.
-	if (pml4_get_page(thread_current()->pml4, (void *)uaddr) == NULL)
-	{
-		user_mem_debug("invalid user ptr: unmapped %p\n", uaddr);
 		return false;
 	}
 
@@ -191,6 +189,39 @@ validate_user_string(const char *str)
 		}
 		str++;
 	}
+}
+
+//버퍼의 page들이 쓰기권한이 있는지 확인
+static bool
+is_writable_user_buffer (void *buffer, size_t size) {
+	struct supplemental_page_table *spt = &thread_current ()->spt;
+
+	if (size == 0)
+		return true;
+
+	uint8_t *start = pg_round_down (buffer);
+	uint8_t *end = pg_round_down ((uint8_t *) buffer + size - 1);
+
+	for (uint8_t *addr = start; addr <= end; addr += PGSIZE) {
+		struct page *page = spt_find_page (spt, addr);
+
+		if (page == NULL) {
+			uintptr_t va = (uintptr_t) addr;
+			uintptr_t stack_limit = (uintptr_t) USER_STACK - (1 << 20);
+			uintptr_t user_rsp = (uintptr_t) thread_current ()->user_rsp;
+			if (va < stack_limit || va >= (uintptr_t) USER_STACK)
+				return false;
+			if (va < user_rsp - 8)
+				return false;
+			continue;
+
+		}
+
+		if (!page->writable)
+			return false;
+	}
+
+	return true;
 }
 
 // 기본 헬퍼 함수
@@ -288,6 +319,8 @@ static int sys_read(int fd, void *buffer, unsigned size)
 		return -1;
 	if (fd >= ARG_MAX)
 		return -1;
+	if (!is_writable_user_buffer(buffer, size))
+		sys_exit(-1);
 
 	if (fd == 0) // 표준입력,  size만큼 반복, 문자 하나를 읽어서 버퍼에 저장후, size반환
 	{
@@ -481,7 +514,6 @@ sys_mmap(void *addr, size_t length, int writable, int fd, off_t ofs){
 	if (addr==NULL || is_kernel_vaddr(addr)){
 		return MAP_FAILED;
 	}
-	//addr가 페이지 단위로 주소를 잘랐을 때, 얼마나 밀려있는지
 	if (pg_ofs(addr)!=0){
 		return MAP_FAILED;
 	}
@@ -500,8 +532,28 @@ sys_mmap(void *addr, size_t length, int writable, int fd, off_t ofs){
 	if (file == NULL){
 		return MAP_FAILED;
 	}
-	return do_mmap(addr, length, writable, file, ofs);
+	void *result = do_mmap(addr, length, writable, file, ofs);
+	return result;
 }
+
+static void
+sys_munmap(void *addr) {
+	if (addr == NULL || !is_user_vaddr(addr))
+		return;
+	if (pg_ofs(addr) != 0)
+		return;
+
+	struct page *page = spt_find_page(&thread_current()->spt, addr);
+	if (page == NULL)
+		return;
+	if (page_get_type(page) != VM_FILE)
+		return;
+	if (!page->file.is_mmap_start)
+		return;
+
+	do_munmap(addr);
+}
+
 
 /* The main system call interface */
 void syscall_handler(struct intr_frame *f)
@@ -559,8 +611,11 @@ void syscall_handler(struct intr_frame *f)
 		f->R.rax = sys_exec((const char *) f->R.rdi);
 		break;
 	case SYS_MMAP:
-		f->R.rax = sys_mmap((void *) f->R.rdi, (size_t) f->R.rsi, 
+		f->R.rax = sys_mmap((void *) f->R.rdi, (size_t) f->R.rsi,
 						(int) f->R.rdx, (int) f->R.r10, (off_t) f->R.r8);
+		break;
+	case SYS_MUNMAP:
+		sys_munmap((void *) f->R.rdi);
 		break;
 	default:
 		sys_exit(-1);
