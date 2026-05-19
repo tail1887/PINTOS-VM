@@ -201,9 +201,14 @@ static bool
 vm_stack_growth (void *addr) {
 	addr = pg_round_down(addr);
 	bool succ = vm_alloc_page_with_initializer(VM_ANON, addr, true, NULL, NULL);
-	if (succ){
-		return vm_claim_page(addr);
+	struct page *page = spt_find_page(&thread_current()->spt, addr);
+	if (!succ || page == NULL) {
+		return false;
 	}
+	if (vm_do_claim_page(page)){
+		return true;
+	}
+	spt_remove_page(&thread_current()->spt, page);
 	return false;
 }
 
