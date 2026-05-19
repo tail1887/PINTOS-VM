@@ -283,9 +283,25 @@ vm_do_claim_page (struct page *page) {
 	void * upage = page->va;
 	void * kpage = pg_round_down(frame->kva);
 
-	if (!pml4_set_page(thread_current()->pml4, upage, kpage, page->writable))
+	if (!pml4_set_page(thread_current()->pml4, upage, kpage, page->writable)){
+		frame->page = NULL;
+		page->frame = NULL;
+		vm_frame_table_remove(frame);
+		palloc_free_page(frame->kva);
+		free(frame);
 		return false;
-	return swap_in (page, frame->kva);
+	}
+	
+	if (!swap_in (page, frame->kva)) {
+		pml4_clear_page (thread_current ()->pml4, upage);
+		frame->page = NULL;
+		page->frame = NULL;
+		vm_frame_table_remove (frame);
+		palloc_free_page (frame->kva);
+		free (frame);
+		return false;
+	}
+	return true;
 }
 
 /* Initialize new supplemental page table */
