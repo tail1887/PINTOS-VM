@@ -131,6 +131,12 @@ page_fault (struct intr_frame *f) {
 
 	fault_addr = (void *) rcr2();
 
+	static int pf_cnt;
+	if (pf_cnt < 20) {
+		printf("PF[%d] addr=%p rip=%p rsp=%p user=%d write=%d not_present=%d\n",
+			pf_cnt, fault_addr, f->rip, f->rsp, user, write, not_present);
+	}
+	pf_cnt++;
 	/* Turn interrupts back on (they were only off so that we could
 	   be assured of reading CR2 before it changed). */
 	intr_enable ();

@@ -34,13 +34,14 @@ vm_anon_init (void) {
 		PANIC("Failed to get swap disk");
 	}
 
-	//bitmap_create는 비트(slot)를 몇개 만들지 숫자가 필요한데 
-	// disk_size는 섹터갯수를 줘서 PGSIZE / DISK_SECTOR_SIZE(8)로 나눠줌
+	//bitmap_create??鍮꾪듃(slot)瑜?紐뉕컻 留뚮뱾吏 ?レ옄媛 ?꾩슂?쒕뜲
+	// disk_size???뱁꽣媛?닔瑜?以섏꽌 PGSIZE / DISK_SECTOR_SIZE(8)濡??섎닠以?
 	size_t swap_slot_cnt = disk_size(swap_disk) / (PGSIZE / DISK_SECTOR_SIZE);
+
 	if (swap_slot_cnt == 0) {
 		PANIC("Failed to calculate swap slot count");
 	}
-	
+
 	swap_bitmap = bitmap_create(swap_slot_cnt);
 	if(swap_bitmap == NULL) {
 		PANIC("Failed to create swap bitmap");
@@ -59,17 +60,17 @@ anon_initializer (struct page *page, enum vm_type type, void *kva) {
 	return true;
 }
 
-// swap 슬롯에 저장된 내용을 kva로 복구했으면 true. 
-// 슬롯이 없으면 swap 복구는 필요 없음 → true. (첫 로드·파일 로드는 uninit 경로)
+// swap ?щ’????λ맂 ?댁슜??kva濡?蹂듦뎄?덉쑝硫?true.
+// ?щ’???놁쑝硫?swap 蹂듦뎄???꾩슂 ?놁쓬 ??true. (泥?濡쒕뱶쨌?뚯씪 濡쒕뱶??uninit 寃쎈줈)
 static bool
 anon_swap_in (struct page *page, void *kva) {
 	struct anon_page *anon_page = &page->anon;
-	// 이 페이지에 대해 swap 디스크에서 가져올 내용이 없음
+	// ???섏씠吏?????swap ?붿뒪?ъ뿉??媛?몄삱 ?댁슜???놁쓬
 	if(anon_page->swap_slot == ANON_SWAP_SLOT_NONE) {
-		// swap에서 복구할
+		// swap?먯꽌 蹂듦뎄??
 		return true;
 	}
-	
+
 	size_t swap_slot = anon_page->swap_slot;
 	disk_sector_t base = swap_slot * (PGSIZE / DISK_SECTOR_SIZE);
     for (size_t i = 0; i < PGSIZE / DISK_SECTOR_SIZE; i++){
@@ -80,7 +81,7 @@ anon_swap_in (struct page *page, void *kva) {
 	bitmap_reset(swap_bitmap, swap_slot);
 	anon_page->swap_slot = ANON_SWAP_SLOT_NONE;
 	lock_release(&swap_lock);
-	
+
 	return true;
 }
 
@@ -89,30 +90,30 @@ static bool
 anon_swap_out (struct page *page) {
 	struct anon_page *anon_page = &page->anon;
 
-	// 프레임이 없는 경우
+	// ?꾨젅?꾩씠 ?녿뒗 寃쎌슦
 	if(page->frame == NULL) {
 		return false;
 	}
-	// 이미 스왑 슬롯에 있는 경우
+	// ?대? ?ㅼ솑 ?щ’???덈뒗 寃쎌슦
 	if(anon_page->swap_slot != ANON_SWAP_SLOT_NONE) {
 		return false;
 	}
 
 	lock_acquire (&swap_lock);
 
-	// 빈 슬롯을 찾아서 할당
+	// 鍮??щ’??李얠븘???좊떦
 	size_t swap_slot = bitmap_scan_and_flip(swap_bitmap, 0, 1, false);
-	
+
 	if (swap_slot == BITMAP_ERROR) {
 		lock_release(&swap_lock);
 		return false;
 	}
 
-	// 디스크에 내용을 씀
-	// 여기서 함수는 섹터단위로 쓰기 때문에 PGSIZE / DISK_SECTOR_SIZE로 나눠줌
+	// ?붿뒪?ъ뿉 ?댁슜???
+	// ?ш린???⑥닔???뱁꽣?⑥쐞濡??곌린 ?뚮Ц??PGSIZE / DISK_SECTOR_SIZE濡??섎닠以?
 	void *kva = page->frame->kva;
 	disk_sector_t base = swap_slot * (PGSIZE / DISK_SECTOR_SIZE);
-	for (size_t i = 0; i < PGSIZE / DISK_SECTOR_SIZE; i++) { 
+	for (size_t i = 0; i < PGSIZE / DISK_SECTOR_SIZE; i++) {
 		disk_write(swap_disk, base + i, kva + i * DISK_SECTOR_SIZE);
 	}
 
@@ -126,7 +127,7 @@ anon_swap_out (struct page *page) {
 static void
 anon_destroy (struct page *page) {
 
-	// 스왑 슬롯이 있는 경우
+	// ?ㅼ솑 ?щ’???덈뒗 寃쎌슦
 	struct anon_page *anon_page = &page->anon;
 	if(anon_page->swap_slot != ANON_SWAP_SLOT_NONE) {
 		lock_acquire(&swap_lock);
@@ -141,12 +142,12 @@ anon_destroy (struct page *page) {
 	}
 
 	struct thread *t = thread_current ();
-	// 유저 VA → 물리 프레임(kva) 매핑 해제
+	// ?좎? VA ??臾쇰━ ?꾨젅??kva) 留ㅽ븨 ?댁젣
 	if (t->pml4 != NULL && pml4_get_page (t->pml4, page->va) != NULL)
 		pml4_clear_page (t->pml4, page->va);
 
 	vm_frame_table_remove(f);
-	// 커널용 메모리(kva) 해제
+	// 而ㅻ꼸??硫붾え由?kva) ?댁젣
 	if(f->kva != NULL) {
 		palloc_free_page(f->kva);
 		f->kva = NULL;

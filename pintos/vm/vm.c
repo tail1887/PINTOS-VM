@@ -85,7 +85,7 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 		}
 
 		uninit_new(page, va, init, type, aux, initializer);
-		
+
 		page->writable = writable;
 
 		/* TODO: Insert the page into the spt. */
@@ -237,7 +237,7 @@ vm_get_victim (void) {
  * Return NULL on error.*/
 static struct frame *
 vm_evict_frame (void) {
-	//victim할 frame 가져오기
+	//victim??frame ?띠럾??筌뤾쑴沅롧뼨?
 	struct frame *victim  = vm_get_victim ();
 	if (victim == NULL) {
 		return NULL;
@@ -246,7 +246,7 @@ vm_evict_frame (void) {
 	if (page == NULL) {
 		return NULL;
 	}
-	//victim의 page를 swap_out
+	//victim??page??swap_out
 	if (!swap_out(page)) {
 		return NULL;
 	}
@@ -257,7 +257,6 @@ vm_evict_frame (void) {
 
 	victim->page = NULL;
 	page->frame = NULL;
-	
 	return victim;
 }
 
@@ -267,18 +266,18 @@ vm_evict_frame (void) {
  * space.*/
 static struct frame *
 vm_get_frame (void) {
-
 	struct frame *frame = NULL;
 	frame = malloc(sizeof(*frame));
 	ASSERT(frame != NULL);
-	
+
 	/* TODO: Fill this function. */
 	frame->kva = palloc_get_page(PAL_USER);
 	if (frame->kva == NULL) {
-		free (frame);
+		free(frame);
 		frame = vm_evict_frame ();
-		if (frame == NULL)
+		if (frame == NULL) {
 			return NULL;
+		}
 	} else {
 		frame->page = NULL;
 		frame->owner = NULL;
@@ -322,44 +321,44 @@ vm_try_handle_fault (struct intr_frame *f, void *addr,
 		bool user, bool write, bool not_present) {
 	struct supplemental_page_table *spt = &thread_current ()->spt;
 	struct page *page = NULL;
-	//page_table에 없는지 검사
+	//page_table?????⑸츎嶺뚯솘? ?롪틵???
 	if (!not_present){
 		return false;
 	}
-	//유저모드 주소인지 검사
+	//???嶺뚮ㅄ維獄??낅슣???筌? ?롪틵???
 	if (addr == NULL || !is_user_vaddr(addr)){
 		return false;
 	}
-	//spt에 page가 있다면 바로 claim
+	//spt??page?띠럾? ???덈펲嶺??꾩룆?餓?claim
 	page = spt_find_page(spt, addr);
 	if (page != NULL) {
-		//쓰기 권한 위반이 아닌지 검사
+		//??⑤슢??雅?굝??뇡??熬곣뫁類???熬곣뫀鍮믥춯?뼿 ?롪틵???
 		if (write && !page->writable) {
 			return false;
 		}
 		return vm_do_claim_page(page);
 	}
-	//spt에 page가 없다면, stack_growth검사 
+	//spt??page?띠럾? ???⑸펲嶺? stack_growth?롪틵???
 	if (vm_can_stack_growth(f, addr, user)){
 		return vm_stack_growth(addr);
 	}
 	return false;
 }
 
-//스택그로스 검사 헬퍼함수
+//???꾨Ц?잙갭梨뜸빳???롪틵????????貫??
 bool
 vm_can_stack_growth (struct intr_frame *f, void *addr, bool user){
-	//user모드 fault인지, kernel모드 fault인지 분리해서 검사
+	//user嶺뚮ㅄ維獄?fault?筌?, kernel嶺뚮ㅄ維獄?fault?筌? ?釉뚯뫊???怨댄맋 ?롪틵???
 	uintptr_t va = (uintptr_t) addr;
 	uintptr_t stack_bottom_limit = (uintptr_t)USER_STACK - (1 << 20);
 	uintptr_t stack_top = (uintptr_t)USER_STACK;
 	struct thread *curr = thread_current();
 
-	//fault_addr가 스택 범위 내에 있는지
+	//fault_addr?띠럾? ???꾨Ц ?뺢퀡?????怨룻뱺 ???덈츎嶺뚯솘?
 	if (va < stack_bottom_limit || va >= stack_top){
 		return false;
 	}
-	//user모드에서 page_fault인 경우
+	//user嶺뚮ㅄ維獄?????page_fault???롪퍔???
 	if (user){
 		if (f->rsp < 8){
 			return false;
@@ -368,7 +367,7 @@ vm_can_stack_growth (struct intr_frame *f, void *addr, bool user){
 			return false;
 		}
 	} else {
-	//kernel모드에서 page_fault인 경우
+	//kernel嶺뚮ㅄ維獄?????page_fault???롪퍔???
 		if (curr->user_rsp < 8){
 			return false;
 		}
@@ -424,14 +423,11 @@ vm_do_claim_page (struct page *page) {
 		free(frame);
 		return false;
 	}
-	
+
 	if (!swap_in (page, frame->kva)) {
 		pml4_clear_page (thread_current ()->pml4, upage);
 		frame->page = NULL;
 		page->frame = NULL;
-		vm_frame_table_remove (frame);
-		palloc_free_page (frame->kva);
-		free (frame);
 		return false;
 	}
 	return true;
@@ -450,7 +446,7 @@ supplemental_page_table_copy (struct supplemental_page_table *dst UNUSED,
 		struct supplemental_page_table *src UNUSED) {
 }
 
-/* spt kill용 페이지 제거기 */
+/* spt kill????瑜곷턄嶺뚯솘? ??蹂ㅽ깴??*/
 static void
 spt_page_destructor (struct hash_elem *e, void *aux UNUSED) {
 	struct page *p = hash_entry(e, struct page, elem);
@@ -468,7 +464,7 @@ supplemental_page_table_kill (struct supplemental_page_table *spt) {
 /* Returns a hash value for a page based on its user virtual address. */
 static uint64_t
 page_hash (const struct hash_elem *e, void *aux UNUSED) {
-	/* 이 경로로는 쓰기가 불가능하다는 걸 표시하기 위해 const를 사용. */
+	/* ???롪퍔?δ빳?껋뿉?類ｋ츎 ??⑤슢?쎿뤆?쎛 ?釉띾쐝??繞③뇡???노츎 濾???戮?뻣???얄뵛 ?熬곥굥??const?????? */
 	const struct page *page = hash_entry (e, struct page, elem);
 	return hash_bytes (&page->va, sizeof page->va);
 }

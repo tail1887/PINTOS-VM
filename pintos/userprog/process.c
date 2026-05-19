@@ -1204,7 +1204,7 @@ install_page (void *upage, void *kpage, bool writable) {
 static struct segment_aux *
 create_segment_aux(struct file *file, off_t ofs, uint64_t read_bytes, uint64_t zero_bytes) {
 	//내부 필수 필드: file, ofs, read_bytes, zero_bytes. 
-	struct segment_aux *aux_ptr = palloc_get_page(0);
+	struct segment_aux *aux_ptr = malloc(sizeof *aux_ptr);
 	if (aux_ptr == NULL)
 		return NULL;
 
@@ -1217,7 +1217,7 @@ create_segment_aux(struct file *file, off_t ofs, uint64_t read_bytes, uint64_t z
 
 static void free_segment_aux(void *aux) {
 	if (aux != NULL)
-		palloc_free_page(aux);
+		free(aux);
 }
 
 static bool
