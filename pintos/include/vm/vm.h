@@ -70,7 +70,6 @@ struct page {
 struct frame {
 	void *kva;
 	struct page *page;
-
 	struct thread *owner;
 	struct list_elem elem;
 	bool in_frame_table;

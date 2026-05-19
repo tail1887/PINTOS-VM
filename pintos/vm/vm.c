@@ -217,10 +217,28 @@ vm_get_victim (void) {
  * Return NULL on error.*/
 static struct frame *
 vm_evict_frame (void) {
-	struct frame *victim UNUSED = vm_get_victim ();
-	/* TODO: swap out the victim and return the evicted frame. */
+	//victim할 frame 가져오기
+	struct frame *victim  = vm_get_victim ();
+	if (victim == NULL) {
+		return NULL;
+	}
+	struct page *page = victim->page;
+	if (page == NULL) {
+		return NULL;
+	}
+	//victim의 page를 swap_out
+	if (!swap_out(page)) {
+		return NULL;
+	}
+	/* Victim may belong to another process. */
+	struct thread *owner = victim->owner != NULL ? victim->owner : thread_current ();
+	pml4_clear_page (owner->pml4, page->va);
+	ASSERT (pml4_get_page (owner->pml4, page->va) == NULL);
+
+	victim->page = NULL;
+	page->frame = NULL;
 	
-	return NULL;
+	return victim;
 }
 
 /* palloc() and get frame. If there is no available page, evict the page
@@ -233,17 +251,19 @@ vm_get_frame (void) {
 	struct frame *frame = NULL;
 	frame = malloc(sizeof(*frame));
 	ASSERT(frame != NULL);
+	
 	/* TODO: Fill this function. */
 	frame->kva = palloc_get_page(PAL_USER);
-	if(frame->kva == NULL) {
-		free(frame);
-	 	frame = vm_evict_frame();
-	}
-	else{
+	if (frame->kva == NULL) {
+		free (frame);
+		frame = vm_evict_frame ();
+		if (frame == NULL)
+			return NULL;
+	} else {
 		frame->page = NULL;
 		frame->owner = NULL;
 		frame->in_frame_table = false;
-		frame_table_add(frame);
+		frame_table_add (frame);
 	}
 
 	ASSERT (frame != NULL);
