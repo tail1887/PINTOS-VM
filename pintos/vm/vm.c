@@ -277,10 +277,17 @@ vm_get_frame (void) {
 bool
 vm_stack_growth (void *addr) {
 	addr = pg_round_down(addr);
-	bool succ = vm_alloc_page_with_initializer(VM_ANON, addr, true, NULL, NULL);
-	if (succ){
-		return vm_claim_page(addr);
-	}
+
+	if (!vm_alloc_page_with_initializer(VM_ANON, addr, true, NULL, NULL))
+		return false;
+
+	if (vm_claim_page(addr))
+		return true;
+
+	struct supplemental_page_table *spt = &thread_current()->spt;
+	struct page *page = spt_find_page(spt, addr);
+	if (page != NULL)
+		spt_remove_page(spt, page);
 	return false;
 }
 
