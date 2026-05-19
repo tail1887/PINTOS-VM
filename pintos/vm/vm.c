@@ -46,7 +46,6 @@ static struct frame *vm_evict_frame (void);
 static uint64_t page_hash (const struct hash_elem *e, void *aux);
 static bool page_less (const struct hash_elem *a,
 		const struct hash_elem *b, void *aux);
-static bool vm_can_stack_growth(struct intr_frame *f, void *addr, bool user);
 
 /* Create the pending page object with initializer. If you want to create a
  * page, do not create it directly and make it through this function or
@@ -197,7 +196,7 @@ vm_get_frame (void) {
 }
 
 /* Growing the stack. */
-static bool
+bool
 vm_stack_growth (void *addr) {
 	addr = pg_round_down(addr);
 	bool succ = vm_alloc_page_with_initializer(VM_ANON, addr, true, NULL, NULL);
@@ -244,7 +243,7 @@ vm_try_handle_fault (struct intr_frame *f, void *addr,
 }
 
 //스택그로스 검사 헬퍼함수
-static bool
+bool
 vm_can_stack_growth (struct intr_frame *f, void *addr, bool user){
 	//user모드 fault인지, kernel모드 fault인지 분리해서 검사
 	uintptr_t va = (uintptr_t) addr;
