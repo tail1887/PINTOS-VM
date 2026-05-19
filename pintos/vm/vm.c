@@ -186,9 +186,9 @@ vm_get_victim (void) {
 	uint64_t *pml4 = NULL;
 
 	lock_acquire(&frame_table_lock);
-	int count = (int)list_size(&frame_table) * 2;
+	
 	 /* TODO: The policy for eviction is up to you. */
-	for(int i = 0; i < count; i++){
+	for(int i = 0; i < (int)list_size(&frame_table); i++){
 		victim = frame_table_next();
 		if (victim == NULL){
 			lock_release(&frame_table_lock);
@@ -206,6 +206,26 @@ vm_get_victim (void) {
 			pml4_set_accessed(pml4, va, false);
 			continue;
 		}
+		lock_release(&frame_table_lock);
+		return victim;
+	}
+
+	//두번째 순회는 기회 안주고 즉시 반환
+	for(int i = 0; i < (int)list_size(&frame_table); i++){
+		victim = frame_table_next();
+		if (victim == NULL){
+			lock_release(&frame_table_lock);
+			return NULL;
+		}
+		if (victim->page == NULL || victim->owner == NULL)
+			continue;
+
+		va = victim->page->va;
+		pml4 = victim->owner->pml4;
+
+		if (va == NULL || pml4 == NULL)
+			continue;
+
 		lock_release(&frame_table_lock);
 		return victim;
 	}
@@ -266,10 +286,9 @@ vm_get_frame (void) {
 		frame_table_add (frame);
 	}
 
-	ASSERT (frame != NULL);
+	if (frame == NULL)
+		return NULL;
 	frame->page = NULL;
-	ASSERT (frame->page == NULL);
-
 	return frame;
 }
 
@@ -386,7 +405,8 @@ vm_claim_page (void *va) {
 static bool
 vm_do_claim_page (struct page *page) {
 	struct frame *frame = vm_get_frame ();
-	ASSERT(frame != NULL);
+	if (frame == NULL)
+		return false;
 	/* Set links */
 	frame->page = page;
 	frame->owner = thread_current();
