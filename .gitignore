@@ -31,3 +31,6 @@ core
 
 # VS Code / Cursor 로컬 워크스페이스 설정
 **/.vscode/
+
+# C/C++ 확장 캐시 (Code Painter Helper 등)
+**/.cph/
