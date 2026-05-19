@@ -4,6 +4,7 @@
 #include <debug.h>
 #include <string.h>
 #include "vm/vm.h"
+#include "vm/anon.h"
 #include "vm/uninit.h"
 #include "vm/inspect.h"
 #include "filesys/file.h"
@@ -56,6 +57,8 @@ static bool page_less (const struct hash_elem *a,
 static void spt_page_destructor (struct hash_elem *e, void *aux);
 static void *spt_copy_uninit_aux (struct page *src);
 static bool spt_copy_uninit_page (struct page *src);
+static bool spt_copy_loaded_anon_page (struct page *src);
+static void spt_copy_rollback (struct supplemental_page_table *dst);
 
 /* Create the pending page object with initializer. If you want to create a
  * page, do not create it directly and make it through this function or
@@ -515,29 +518,79 @@ spt_copy_uninit_page (struct page *src) {
 	return true;
 }
 
+/* copy 실패 시 자식 SPT에 이미 넣은 page 정리 */
+static void
+spt_copy_rollback (struct supplemental_page_table *dst) {
+	hash_destroy (&dst->hash, spt_page_destructor);
+	hash_init (&dst->hash, page_hash, page_less, NULL);
+}
+
+/* Merge 5-B: 부모 loaded anon을 자식에 등록·claim 후 내용을 복사한다 (즉시 복사, COW 아님). */
+static bool
+spt_copy_loaded_anon_page (struct page *src) {
+	void *va = src->va;
+	struct supplemental_page_table *spt = &thread_current ()->spt;
+	struct page *child = NULL;
+	void *child_kva = NULL;
+
+	if (!vm_alloc_page (VM_ANON, va, src->writable))
+		return false;
+
+	if (!vm_claim_page (va)) {
+		child = spt_find_page (spt, va);
+		if (child != NULL)
+			spt_remove_page (spt, child);
+		return false;
+	}
+
+	child = spt_find_page (spt, va);
+	if (child == NULL || child->frame == NULL)
+		return false;
+
+	child_kva = child->frame->kva;
+
+	if (src->frame != NULL) {
+		memcpy (child_kva, src->frame->kva, PGSIZE);
+	} else if (src->anon.swap_slot != ANON_SWAP_SLOT_NONE) {
+		/* 부모만 swap out된 경우: 슬롯은 건드리지 않고 디스크 내용만 읽는다 */
+		if (!anon_read_swap_to_kva (src->anon.swap_slot, child_kva)) {
+			spt_remove_page (spt, child);
+			return false;
+		}
+	} else {
+		spt_remove_page (spt, child);
+		return false;
+	}
+	return true;
+}
+
 /* Copy supplemental page table from src to dst */
 bool
 supplemental_page_table_copy (struct supplemental_page_table *dst,
 		struct supplemental_page_table *src) {
 	struct hash_elem *e;
+	enum vm_type ty;
 
 	ASSERT (dst != NULL && src != NULL);
 
 	for (e = hash_begin (&src->hash); e != hash_end (&src->hash);
 			e = hash_next (e)) {
 		struct page *src_page = hash_entry (e, struct page, elem);
+		ty = VM_TYPE (src_page->operations->type);
 
-		/* 아직 fault로 materialize되지 않은 page만 A 범위에서 복사 */
-		if (VM_TYPE (src_page->operations->type) != VM_UNINIT) {
-			/* Merge 5-B/C: loaded anon·file-backed는 별도 분기 */
-			hash_destroy (&dst->hash, spt_page_destructor);
-			hash_init (&dst->hash, page_hash, page_less, NULL);
-			return false;
-		}
-
-		if (!spt_copy_uninit_page (src_page)) {
-			hash_destroy (&dst->hash, spt_page_destructor);
-			hash_init (&dst->hash, page_hash, page_less, NULL);
+		if (ty == VM_UNINIT) {
+			if (!spt_copy_uninit_page (src_page)) {
+				spt_copy_rollback (dst);
+				return false;
+			}
+		} else if (ty == VM_ANON) {
+			if (!spt_copy_loaded_anon_page (src_page)) {
+				spt_copy_rollback (dst);
+				return false;
+			}
+		} else {
+			/* Merge 5-C: file-backed / mmap */
+			spt_copy_rollback (dst);
 			return false;
 		}
 	}
