@@ -272,7 +272,7 @@ vm_get_frame (void) {
 	frame = malloc (sizeof *frame);
 	if (frame == NULL)
 		return NULL;
-	
+
 	/* TODO: Fill this function. */
 	frame->kva = palloc_get_page(PAL_USER);
 	if (frame->kva == NULL) {
@@ -340,7 +340,7 @@ vm_try_handle_fault (struct intr_frame *f, void *addr,
 		}
 		return vm_do_claim_page(page);
 	}
-	//spt에 page가 없다면, stack_growth검사 
+	//spt에 page가 없다면, stack_growth검사
 	if (vm_can_stack_growth(f, addr, user)){
 		return vm_stack_growth(addr);
 	}

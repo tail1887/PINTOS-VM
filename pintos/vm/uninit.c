@@ -10,6 +10,7 @@
 
 #include "vm/vm.h"
 #include "vm/uninit.h"
+#include "threads/malloc.h"
 
 static bool uninit_initialize (struct page *page, void *kva);
 static void uninit_destroy (struct page *page);
@@ -71,7 +72,7 @@ static void
 uninit_destroy (struct page *page) {
 		struct uninit_page *u = &page->uninit;
 	if (u->aux != NULL) {
-		palloc_free_page(u->aux);
+		free(u->aux);
 		u->aux = NULL;
 	}
 	//free(page)는 호출자가 함

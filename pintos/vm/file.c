@@ -73,7 +73,7 @@ file_backed_swap_out (struct page *page) {
 	uint64_t *pml4 = frame->owner != NULL ? frame->owner->pml4 : thread_current ()-> pml4;
 
 	if (pml4_is_dirty (pml4, page->va)){
-		off_t written = file_write_at(file_page->file, frame->kva, 
+		off_t written = file_write_at(file_page->file, frame->kva,
 						(off_t) file_page->read_bytes, file_page->ofs);
 
 		if(written != (off_t) file_page->read_bytes)
@@ -125,7 +125,7 @@ file_backed_destroy (struct page *page) {
 static void
 free_file_aux (void *aux) {
 	if (aux != NULL)
-		palloc_free_page (aux);
+		free (aux);
 }
 
 static bool
@@ -184,7 +184,7 @@ do_mmap (void *addr, size_t length, int writable,
 
 	size_t i = 0;
 	while (i < length) {
-		struct file_page *file_page = palloc_get_page (0);
+		struct file_page *file_page = malloc (sizeof (struct file_page));
 		/* file_page가 만들어지지 않았다면, SPT에 넣었던 mmap page를 없애줌 */
 		if (file_page == NULL) {
 			for (size_t j = 0; j < i; j += PGSIZE) {
@@ -231,7 +231,7 @@ do_mmap (void *addr, size_t length, int writable,
 		if (!vm_alloc_page_with_initializer (VM_FILE, (uint8_t *) addr + i, writable,
 				mmap_lazy_load, file_page)) {
 
-			palloc_free_page (file_page);
+			free (file_page);
 
 			for (size_t j = 0; j < i; j += PGSIZE) {
 				struct page *page = spt_find_page (spt, (uint8_t *) addr + j);

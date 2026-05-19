@@ -1199,31 +1199,39 @@ install_page (void *upage, void *kpage, bool writable) {
 	off_t ofs;
 	uint64_t read_bytes;
 	uint64_t zero_bytes;
+	size_t page_cnt;
+	bool is_mmap_start;
 };
 
 static struct segment_aux *
 create_segment_aux(struct file *file, off_t ofs, uint64_t read_bytes, uint64_t zero_bytes) {
-	//내부 필수 필드: file, ofs, read_bytes, zero_bytes. 
-	struct segment_aux *aux_ptr = palloc_get_page (PAL_ZERO);
+	//내부 필수 필드: file, ofs, read_bytes, zero_bytes.
+	struct segment_aux *aux_ptr = malloc (sizeof (struct segment_aux));
 	if (aux_ptr == NULL)
 		return NULL;
 
 	aux_ptr->file = file_reopen(file); // [DEBUGED] 원래 aux_ptr->file = file;라서 모든 segment page가 하나의 Struct file을 공유함
+	if (aux_ptr->file == NULL) {
+		free (aux_ptr);
+		return NULL;
+	}
 	aux_ptr->ofs = ofs;
 	aux_ptr->read_bytes = read_bytes;
 	aux_ptr->zero_bytes = zero_bytes;
+	aux_ptr->page_cnt = 0;
+	aux_ptr->is_mmap_start = false;
 	return aux_ptr;
 }
 
 static void free_segment_aux(void *aux) {
 	if (aux != NULL)
-		palloc_free_page(aux);
+		free(aux);
 }
 
 static bool
 lazy_load_segment (struct page *page, void *aux) {
-	
-	struct segment_aux *a = aux;	
+
+	struct segment_aux *a = aux;
 	void *kva = page->frame->kva;
 	off_t read_bytes = file_read_at(a->file, kva, (off_t)a->read_bytes, a->ofs);
 	if (read_bytes != a->read_bytes){
@@ -1265,12 +1273,12 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 
 		/* TODO: Set up aux to pass information to the lazy_load_segment. */
 		void *aux = NULL;
-		
+
 		aux = create_segment_aux (file, ofs, page_read_bytes, page_zero_bytes);
 		if (aux == NULL)
 			return false;
 
-		if (!vm_alloc_page_with_initializer (VM_FILE, upage,
+		if (!vm_alloc_page_with_initializer (VM_ANON, upage,
 					writable, lazy_load_segment, aux)){
 			free_segment_aux(aux);
 			return false;
