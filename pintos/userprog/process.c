@@ -1208,7 +1208,7 @@ create_segment_aux(struct file *file, off_t ofs, uint64_t read_bytes, uint64_t z
 	if (aux_ptr == NULL)
 		return NULL;
 
-	aux_ptr->file = file;
+	aux_ptr->file = file_reopen(file); // [DEBUGED] 원래 aux_ptr->file = file;라서 모든 segment page가 하나의 Struct file을 공유함
 	aux_ptr->ofs = ofs;
 	aux_ptr->read_bytes = read_bytes;
 	aux_ptr->zero_bytes = zero_bytes;
@@ -1222,10 +1222,9 @@ static void free_segment_aux(void *aux) {
 
 static bool
 lazy_load_segment (struct page *page, void *aux) {
-
+	
 	struct segment_aux *a = aux;	
 	void *kva = page->frame->kva;
-
 	off_t read_bytes = file_read_at(a->file, kva, (off_t)a->read_bytes, a->ofs);
 	if (read_bytes != a->read_bytes){
 		free_segment_aux(a);

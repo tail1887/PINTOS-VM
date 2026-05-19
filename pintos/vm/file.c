@@ -105,15 +105,18 @@ file_backed_destroy (struct page *page) {
 	// 매핑 끊기
 	pml4_clear_page(t->pml4, page->va);
 
-	if (page->frame) {
-	// frame 메모리 반환
-	palloc_free_page(page->frame->kva);
-	// frame 구조체 반환
-	free(page->frame);
+	if (page->frame != NULL) {
+		palloc_free_page (page->frame->kva);
+		free (page->frame);
+		page->frame = NULL;
 	}
 
-	// file 닫기
-	return file_close(file_page->file);
+	if (file_page->file != NULL) {
+		/* mmap: 공유 file은 시작 페이지에서만 close. exec lazy는 page_cnt==0이라 각자 close. */
+		if (file_page->is_mmap_start || file_page->page_cnt == 0)
+			file_close (file_page->file);
+		file_page->file = NULL;
+	}
 }
 
 static void
@@ -129,6 +132,7 @@ mmap_lazy_load (struct page *page, void *aux) {
 	void *kva = page->frame->kva;
 
 	off_t read_bytes = file_read_at (a->file, kva, (off_t) a->read_bytes, a->ofs);
+
 	if (read_bytes != a->read_bytes) {
 		free_file_aux (a);
 		return false;
@@ -217,14 +221,9 @@ do_mmap (void *addr, size_t length, int writable,
 		file_page->ofs = ofs + i;
 		file_page->read_bytes = read_bytes;
 		file_page->zero_bytes = zero_bytes;
-		/* mmap한 첫번째 페이지에 몇개의 페이지를 mmap했는지 저장 */
-		if (i == 0) {
-			file_page->is_mmap_start = true;
-			file_page->page_cnt = page_cnt;
-		} else {
-			file_page->is_mmap_start = false;
-			file_page->page_cnt = 0;
-		}
+		/* mmap 구간 식별: page_cnt는 모든 mmap 페이지에 동일하게 둔다. */
+		file_page->page_cnt = page_cnt;
+		file_page->is_mmap_start = (i == 0);
 
 		if (!vm_alloc_page_with_initializer (VM_FILE, (uint8_t *) addr + i, writable,
 				mmap_lazy_load, file_page)) {
@@ -256,9 +255,12 @@ do_munmap (void *addr) {
 	if (!is_user_vaddr(addr) || upage == NULL) {
 		return;
 	}
-	for (int i = 0; i < upage->file.page_cnt; i++) {
+	size_t page_cnt = upage->file.page_cnt;
+	for (size_t i = 0; i < page_cnt; i++) {
+		if (upage == NULL)
+			break;
 		spt_remove_page(spt, upage);
-		va = va + PGSIZE;
+		va = (uint8_t *) va + PGSIZE;
 		upage = spt_find_page(spt, va);
 	}
 }

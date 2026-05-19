@@ -33,8 +33,11 @@ enum vm_type {
 #include "filesys/page_cache.h"
 #endif
 
+
+
 struct page_operations;
 struct thread;
+
 
 #define VM_TYPE(type) ((type) & 7)
 
@@ -67,7 +70,6 @@ struct page {
 struct frame {
 	void *kva;
 	struct page *page;
-
 	struct thread *owner;
 	struct list_elem elem;
 	bool in_frame_table;
@@ -119,5 +121,7 @@ bool vm_alloc_page_with_initializer (enum vm_type type, void *upage,
 void vm_dealloc_page (struct page *page);
 bool vm_claim_page (void *va);
 enum vm_type page_get_type (struct page *page);
+bool vm_can_stack_growth(struct intr_frame *f, void *addr, bool user);
+bool vm_stack_growth (void *addr);
 
 #endif  /* VM_VM_H */

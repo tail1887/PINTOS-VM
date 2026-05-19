@@ -49,7 +49,6 @@ static struct frame *vm_evict_frame (void);
 static uint64_t page_hash (const struct hash_elem *e, void *aux);
 static bool page_less (const struct hash_elem *a,
 		const struct hash_elem *b, void *aux);
-static bool vm_can_stack_growth(struct intr_frame *f, void *addr, bool user);
 
 /* Create the pending page object with initializer. If you want to create a
  * page, do not create it directly and make it through this function or
@@ -238,10 +237,28 @@ vm_get_victim (void) {
  * Return NULL on error.*/
 static struct frame *
 vm_evict_frame (void) {
-	struct frame *victim UNUSED = vm_get_victim ();
-	/* TODO: swap out the victim and return the evicted frame. */
+	//victim할 frame 가져오기
+	struct frame *victim  = vm_get_victim ();
+	if (victim == NULL) {
+		return NULL;
+	}
+	struct page *page = victim->page;
+	if (page == NULL) {
+		return NULL;
+	}
+	//victim의 page를 swap_out
+	if (!swap_out(page)) {
+		return NULL;
+	}
+	/* Victim may belong to another process. */
+	struct thread *owner = victim->owner != NULL ? victim->owner : thread_current ();
+	pml4_clear_page (owner->pml4, page->va);
+	ASSERT (pml4_get_page (owner->pml4, page->va) == NULL);
+
+	victim->page = NULL;
+	page->frame = NULL;
 	
-	return NULL;
+	return victim;
 }
 
 /* palloc() and get frame. If there is no available page, evict the page
@@ -253,21 +270,20 @@ vm_get_frame (void) {
 
 	struct frame *frame = NULL;
 	frame = malloc(sizeof(*frame));
-	if(frame == NULL)
-		return NULL;
+	ASSERT(frame != NULL);
+	
 	/* TODO: Fill this function. */
 	frame->kva = palloc_get_page(PAL_USER);
-	if(frame->kva == NULL) {
-		free(frame);
-	 	frame = vm_evict_frame();
+	if (frame->kva == NULL) {
+		free (frame);
+		frame = vm_evict_frame ();
 		if (frame == NULL)
 			return NULL;
-	}
-	else{
+	} else {
 		frame->page = NULL;
 		frame->owner = NULL;
 		frame->in_frame_table = false;
-		frame_table_add(frame);
+		frame_table_add (frame);
 	}
 
 	if (frame == NULL)
@@ -277,13 +293,20 @@ vm_get_frame (void) {
 }
 
 /* Growing the stack. */
-static bool
+bool
 vm_stack_growth (void *addr) {
 	addr = pg_round_down(addr);
-	bool succ = vm_alloc_page_with_initializer(VM_ANON, addr, true, NULL, NULL);
-	if (succ){
-		return vm_claim_page(addr);
-	}
+
+	if (!vm_alloc_page_with_initializer(VM_ANON, addr, true, NULL, NULL))
+		return false;
+
+	if (vm_claim_page(addr))
+		return true;
+
+	struct supplemental_page_table *spt = &thread_current()->spt;
+	struct page *page = spt_find_page(spt, addr);
+	if (page != NULL)
+		spt_remove_page(spt, page);
 	return false;
 }
 
@@ -324,7 +347,7 @@ vm_try_handle_fault (struct intr_frame *f, void *addr,
 }
 
 //스택그로스 검사 헬퍼함수
-static bool
+bool
 vm_can_stack_growth (struct intr_frame *f, void *addr, bool user){
 	//user모드 fault인지, kernel모드 fault인지 분리해서 검사
 	uintptr_t va = (uintptr_t) addr;
@@ -393,9 +416,25 @@ vm_do_claim_page (struct page *page) {
 	void * upage = page->va;
 	void * kpage = pg_round_down(frame->kva);
 
-	if (!pml4_set_page(thread_current()->pml4, upage, kpage, page->writable))
+	if (!pml4_set_page(thread_current()->pml4, upage, kpage, page->writable)){
+		frame->page = NULL;
+		page->frame = NULL;
+		vm_frame_table_remove(frame);
+		palloc_free_page(frame->kva);
+		free(frame);
 		return false;
-	return swap_in (page, frame->kva);
+	}
+	
+	if (!swap_in (page, frame->kva)) {
+		pml4_clear_page (thread_current ()->pml4, upage);
+		frame->page = NULL;
+		page->frame = NULL;
+		vm_frame_table_remove (frame);
+		palloc_free_page (frame->kva);
+		free (frame);
+		return false;
+	}
+	return true;
 }
 
 /* Initialize new supplemental page table */
