@@ -112,6 +112,7 @@ mmap_lazy_load (struct page *page, void *aux) {
 	void *kva = page->frame->kva;
 
 	off_t read_bytes = file_read_at (a->file, kva, (off_t) a->read_bytes, a->ofs);
+
 	if (read_bytes != a->read_bytes) {
 		free_file_aux (a);
 		return false;
@@ -171,13 +172,29 @@ do_mmap (void *addr, size_t length, int writable,
 			file_close (mmap_file);
 			return NULL;
 		}
+		//이번 page에서 mmap 요청 기준으로 처리해야 할 남은 byte 수
+		size_t page_left;
 
-		size_t page_left = length - i < PGSIZE ? length - i : PGSIZE;
+		if (length - i < PGSIZE) {
+			page_left = length - i;
+		} else {
+			page_left = PGSIZE;
+		}
+		//현재 파일 offset부터 파일 끝까지 실제로 읽을 수 있는 남은 byte 수
 		size_t file_left = 0;
-		if (ofs + i < file_size)
-			file_left = file_size - (ofs + i);
 
-		size_t read_bytes = file_left < page_left ? file_left : page_left;
+		if (ofs + i < file_size) {
+			file_left = file_size - (ofs + i);
+		}
+
+		size_t read_bytes;
+
+		if (file_left < page_left) {
+			read_bytes = file_left;
+		} else {
+			read_bytes = page_left;
+		}
+
 		size_t zero_bytes = PGSIZE - read_bytes;
 
 		file_page->file = mmap_file;
@@ -223,9 +240,12 @@ do_munmap (void *addr) {
 	if (!is_user_vaddr(addr) || upage == NULL) {
 		return;
 	}
-	for (int i = 0; i < upage->file.page_cnt; i++) {
+	size_t page_cnt = upage->file.page_cnt;
+	for (size_t i = 0; i < page_cnt; i++) {
+		if (upage == NULL)
+			break;
 		spt_remove_page(spt, upage);
-		va = va + PGSIZE;
+		va = (uint8_t *) va + PGSIZE;
 		upage = spt_find_page(spt, va);
 	}
 }
