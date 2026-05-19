@@ -3,6 +3,7 @@
 #include <stdbool.h>
 #include "threads/palloc.h"
 #include "lib/kernel/hash.h"
+#include "lib/kernel/list.h"
 
 enum vm_type {
 	/* page not initialized */
@@ -69,7 +70,13 @@ struct page {
 struct frame {
 	void *kva;
 	struct page *page;
+
+	struct thread *owner;
+	struct list_elem elem;
+	bool in_frame_table;
 };
+
+void vm_frame_table_remove(struct frame *frame);
 
 /* The function table for page operations.
  * This is one way of implementing "interface" in C.

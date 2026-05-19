@@ -6,8 +6,11 @@
 #include "vm/inspect.h"
 #include "threads/mmu.h"
 #include "threads/thread.h"
+#include "threads/synch.h"
 
-
+static struct list frame_table;
+static struct lock frame_table_lock;
+static struct list_elem *clock_hand;
 /* Initializes the virtual memory subsystem by invoking each subsystem's
  * intialize codes. */
 void
@@ -20,6 +23,9 @@ vm_init (void) {
 	register_inspect_intr ();
 	/* DO NOT MODIFY UPPER LINES. */
 	/* TODO: Your code goes here. */
+	list_init (&frame_table);
+	lock_init (&frame_table_lock);
+	clock_hand = NULL;
 }
 
 /* Get the type of the page. This function is useful if you want to know the
@@ -124,13 +130,87 @@ spt_remove_page (struct supplemental_page_table *spt, struct page *page) {
 	vm_dealloc_page (page);
 }
 
+static void
+frame_table_add (struct frame *frame){
+	lock_acquire (&frame_table_lock);
+	list_push_back (&frame_table, &frame->elem);
+	frame->in_frame_table = true;
+	if (clock_hand == NULL)
+		clock_hand = list_begin (&frame_table);
+	lock_release (&frame_table_lock);
+}
+
+void
+vm_frame_table_remove (struct frame *frame) {
+	if(frame == NULL || !frame->in_frame_table)
+		return;
+	lock_acquire(&frame_table_lock);
+
+	if (clock_hand == &frame->elem) {
+		clock_hand = list_next (clock_hand);
+		if (clock_hand == list_end (&frame_table))
+			clock_hand = list_begin (&frame_table);
+	}
+
+	list_remove(&frame->elem);
+	frame->in_frame_table = false;
+
+	if(list_empty(&frame_table))
+		clock_hand = NULL;
+
+	lock_release(&frame_table_lock);
+}
+
+static struct frame *
+frame_table_next (void) {
+	if (list_empty (&frame_table))
+		return NULL;
+
+	if(clock_hand == NULL || clock_hand == list_end(&frame_table))
+		clock_hand = list_begin(&frame_table);
+
+	struct frame *frame = list_entry(clock_hand, struct frame, elem);
+
+	clock_hand = list_next(clock_hand);
+	if(clock_hand == list_end(&frame_table))
+		clock_hand= list_begin(&frame_table);
+
+	return frame;
+}
+
 /* Get the struct frame, that will be evicted. */
 static struct frame *
 vm_get_victim (void) {
 	struct frame *victim = NULL;
-	 /* TODO: The policy for eviction is up to you. */
+	void *va = NULL;
+	uint64_t *pml4 = NULL;
 
-	return victim;
+	lock_acquire(&frame_table_lock);
+	int count = (int)list_size(&frame_table) * 2;
+	 /* TODO: The policy for eviction is up to you. */
+	for(int i = 0; i < count; i++){
+		victim = frame_table_next();
+		if (victim == NULL){
+			lock_release(&frame_table_lock);
+			return NULL;
+		}
+		if (victim->page == NULL || victim->owner == NULL)
+			continue;
+
+		va = victim->page->va;
+		pml4 = victim->owner->pml4;
+		if (va == NULL || pml4 == NULL)
+			continue;
+
+		if(pml4_is_accessed(pml4, va)){
+			pml4_set_accessed(pml4, va, false);
+			continue;
+		}
+		lock_release(&frame_table_lock);
+		return victim;
+	}
+	lock_release(&frame_table_lock);
+	return NULL;
 }
 
 /* Evict one page and return the corresponding frame.
@@ -157,7 +237,13 @@ vm_get_frame (void) {
 	frame->kva = palloc_get_page(PAL_USER);
 	if(frame->kva == NULL) {
 		free(frame);
-		frame = vm_evict_frame();
+	 	frame = vm_evict_frame();
+	}
+	else{
+		frame->page = NULL;
+		frame->owner = NULL;
+		frame->in_frame_table = false;
+		frame_table_add(frame);
 	}
 
 	ASSERT (frame != NULL);
@@ -276,6 +362,7 @@ vm_do_claim_page (struct page *page) {
 	ASSERT(frame != NULL);
 	/* Set links */
 	frame->page = page;
+	frame->owner = thread_current();
 	page->frame = frame;
 
 	/* TODO: Insert page table entry to map page's VA to frame's PA. */
