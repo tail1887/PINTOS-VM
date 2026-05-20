@@ -29,22 +29,9 @@ vm_file_init (void) {
 bool
 file_backed_initializer (struct page *page, enum vm_type type, void *kva) {
 	/* Set up the handler */
-	void *aux = page->uninit.aux;
+	UNUSED (type);
+	UNUSED (kva);
 	page->operations = &file_ops;
-
-	if (aux == NULL)
-		return false;
-
-	/* segment_aux and mmap file_page aux share the same leading fields;
-	   mmap aux also sets page_cnt / is_mmap_start (segment aux page is zeroed). */
-	struct file_page *a = aux;
-	struct file_page *f = &page->file;
-	f->file = a->file;
-	f->ofs = a->ofs;
-	f->read_bytes = a->read_bytes;
-	f->zero_bytes = a->zero_bytes;
-	f->page_cnt = a->page_cnt;
-	f->is_mmap_start = a->is_mmap_start;
 	return true;
 }
 
@@ -128,16 +115,26 @@ free_file_aux (void *aux) {
 static bool
 mmap_lazy_load (struct page *page, void *aux) {
 	struct file_page *a = aux;
+	if (a == NULL)
+		return false;
+
+	struct file_page *f = &page->file;
+	f->file = a->file;
+	f->ofs = a->ofs;
+	f->read_bytes = a->read_bytes;
+	f->zero_bytes = a->zero_bytes;
+	f->page_cnt = a->page_cnt;
+	f->is_mmap_start = a->is_mmap_start;
 
 	void *kva = page->frame->kva;
 
-	off_t read_bytes = file_read_at (a->file, kva, (off_t) a->read_bytes, a->ofs);
+	off_t read_bytes = file_read_at (f->file, kva, (off_t) f->read_bytes, f->ofs);
 
-	if (read_bytes != a->read_bytes) {
+	if (read_bytes != (off_t) f->read_bytes) {
 		free_file_aux (a);
 		return false;
 	}
-	memset (kva + read_bytes, 0, a->zero_bytes);
+	memset ((uint8_t *) kva + read_bytes, 0, f->zero_bytes);
 	free_file_aux (a);
 	return true;
 }

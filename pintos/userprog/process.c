@@ -1270,7 +1270,7 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 		if (aux == NULL)
 			return false;
 
-		if (!vm_alloc_page_with_initializer (VM_FILE, upage,
+		if (!vm_alloc_page_with_initializer (VM_ANON, upage,
 					writable, lazy_load_segment, aux)){
 			free_segment_aux(aux);
 			return false;
