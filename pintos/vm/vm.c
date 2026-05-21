@@ -2,9 +2,13 @@
 
 #include "threads/malloc.h"
 #include <debug.h>
+#include <string.h>
 #include "vm/vm.h"
+#include "vm/uninit.h"
 #include "vm/inspect.h"
+#include "filesys/file.h"
 #include "threads/mmu.h"
+#include "threads/palloc.h"
 #include "threads/thread.h"
 #include "threads/synch.h"
 
@@ -49,6 +53,9 @@ static struct frame *vm_evict_frame (void);
 static uint64_t page_hash (const struct hash_elem *e, void *aux);
 static bool page_less (const struct hash_elem *a,
 		const struct hash_elem *b, void *aux);
+static void spt_page_destructor (struct hash_elem *e, void *aux);
+static void *spt_copy_uninit_aux (struct page *src);
+static bool spt_copy_uninit_page (struct page *src);
 
 /* Create the pending page object with initializer. If you want to create a
  * page, do not create it directly and make it through this function or
@@ -453,17 +460,88 @@ supplemental_page_table_init (struct supplemental_page_table *spt) {
 		PANIC ("supplemental_page_table_init: hash_init failed");
 }
 
-/* Copy supplemental page table from src to dst */
-bool
-supplemental_page_table_copy (struct supplemental_page_table *dst UNUSED,
-		struct supplemental_page_table *src UNUSED) {
-}
-
-/* spt kill용 페이지 제거기 */
+/* spt kill·copy 실패 롤백용: hash entry마다 page 전체 해제 */
 static void
 spt_page_destructor (struct hash_elem *e, void *aux UNUSED) {
-	struct page *p = hash_entry(e, struct page, elem);
-	vm_dealloc_page(p);
+	struct page *p = hash_entry (e, struct page, elem);
+	vm_dealloc_page (p);
+}
+
+/* Merge 5-A: 부모 uninit page의 aux 페이지를 깊은 복사한다.
+ * exec segment_aux·mmap file_page aux는 선두 필드가 struct file*이므로 file_reopen. */
+static void *
+spt_copy_uninit_aux (struct page *src) {
+	struct uninit_page *u = &src->uninit;
+
+	if (u->aux == NULL)
+		return NULL;
+
+	void *child_aux = palloc_get_page (PAL_ZERO);
+	if (child_aux == NULL)
+		return NULL;
+
+	memcpy (child_aux, u->aux, PGSIZE);
+
+	if (VM_TYPE (page_get_type (src)) == VM_FILE) {
+		struct file_page *a = child_aux;
+		if (a->file != NULL) {
+			struct file *reopened = file_reopen (a->file);
+			if (reopened == NULL) {
+				palloc_free_page (child_aux);
+				return NULL;
+			}
+			a->file = reopened;
+		}
+	}
+	return child_aux;
+}
+
+/* Merge 5-A: 부모 UNINIT 한 엔트리를 자식 SPT에 lazy 상태로 등록한다.
+ * frame·swap 슬롯은 복사하지 않는다. (__do_fork 시점에 current는 자식) */
+static bool
+spt_copy_uninit_page (struct page *src) {
+	struct uninit_page *u = &src->uninit;
+	void *child_aux = spt_copy_uninit_aux (src);
+
+	if (u->aux != NULL && child_aux == NULL)
+		return false;
+
+	if (!vm_alloc_page_with_initializer (page_get_type (src), src->va,
+			src->writable, u->init, child_aux)) {
+		if (child_aux != NULL)
+			palloc_free_page (child_aux);
+		return false;
+	}
+	return true;
+}
+
+/* Copy supplemental page table from src to dst */
+bool
+supplemental_page_table_copy (struct supplemental_page_table *dst,
+		struct supplemental_page_table *src) {
+	struct hash_elem *e;
+
+	ASSERT (dst != NULL && src != NULL);
+
+	for (e = hash_begin (&src->hash); e != hash_end (&src->hash);
+			e = hash_next (e)) {
+		struct page *src_page = hash_entry (e, struct page, elem);
+
+		/* 아직 fault로 materialize되지 않은 page만 A 범위에서 복사 */
+		if (VM_TYPE (src_page->operations->type) != VM_UNINIT) {
+			/* Merge 5-B/C: loaded anon·file-backed는 별도 분기 */
+			hash_destroy (&dst->hash, spt_page_destructor);
+			hash_init (&dst->hash, page_hash, page_less, NULL);
+			return false;
+		}
+
+		if (!spt_copy_uninit_page (src_page)) {
+			hash_destroy (&dst->hash, spt_page_destructor);
+			hash_init (&dst->hash, page_hash, page_less, NULL);
+			return false;
+		}
+	}
+	return true;
 }
 
 /* Free the resource hold by the supplemental page table */
