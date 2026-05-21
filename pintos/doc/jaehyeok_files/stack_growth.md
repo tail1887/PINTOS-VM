@@ -6,12 +6,17 @@
 
 목표는 다음 질문에 답하는 것이다.
 
-- stack growth가 왜 필요한가?
-- page fault와 stack growth는 어떤 관계인가?
+- stack growth가 왜 필요한가? 스택에 넣다보니 va가 stack-bottom보다 작아졌을 때, 스택 페이지만 새로 만들어주면 되는거라서 page fault를 해결할 수 있음
+- page fault와 stack growth는 어떤 관계인가? 
 - 어떤 page fault를 stack growth로 인정해야 하는가?
-- `rsp`, `fault_addr`, `USER_STACK`, stack limit은 각각 무엇인가?
+- `rsp`, `fault_addr`, `USER_STACK`, stack limit은 각각 무엇인가? 
 - `vm_try_handle_fault()`와 `vm_stack_growth()`는 각각 무엇을 해야 하는가?
 - syscall 중 발생하는 stack growth는 왜 따로 조심해야 하는가?
+    syscall 중에는 커널이 유저 버퍼에 읽기/쓰기를 하다가 page fault가 날 수 있습니다.
+    이때 fault는 커널 모드에서 발생하므로 f->rsp가 유저 스택 포인터가 아닐 수 있습니다.
+    하지만 stack growth 판단에는 유저의 rsp가 필요합니다.
+    그래서 syscall 진입 시 유저 rsp를 thread에 저장해두는 방식이 필요할 수 있습니다.
+
 - 어떤 테스트가 이 기능을 검증하는가?
 
 ## 2. Stack Growth 한 문장 요약

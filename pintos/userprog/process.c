@@ -701,8 +701,11 @@ process_exec (void *f_name) {
 	- 권한 관리: 각 단계의 엔트리마다 "이 영역은 읽기 전용인가?", "유저가 접근 가능한가?" 같은 권한 비트를 심어둘 수 있다. 하드웨어가 주소를 찾아 내려가다가 권한이 없는 층을 발견하면 즉시 차단(Segmentation Fault 등)한다.*/
 	
 	process_cleanup ();
-	
-	// TODO: Argument 분리해서 파일명만 load()로 넘기기 
+#ifdef VM
+	supplemental_page_table_init (&thread_current ()->spt);
+#endif
+
+	// TODO: Argument 분리해서 파일명만 load()로 넘기기
 	// 기능 2: 사용자 스택 레이아웃 구성 부분 시작 (ABI 계약)
 
 	// build_user_stack_args()가 계산한 argv 주소를, 다음 단계인 set_user_entry_registers()에 전달하기 위한 중간 저장소
@@ -925,7 +928,7 @@ struct ELF64_PHDR {
 static bool setup_stack (struct intr_frame *if_);
 static bool validate_segment (const struct Phdr *, struct file *);
 static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
-		uint32_t read_bytes, uint32_t zero_bytes,
+		uint64_t read_bytes, uint64_t zero_bytes,
 		bool writable);
 
 
@@ -1123,7 +1126,7 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 		 * and zero the final PAGE_ZERO_BYTES bytes. */
 		size_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
 		size_t page_zero_bytes = PGSIZE - page_read_bytes;
-
+		
 		/* Get a page of memory. */
 		uint8_t *kpage = palloc_get_page (PAL_USER);
 		if (kpage == NULL)
@@ -1191,11 +1194,53 @@ install_page (void *upage, void *kpage, bool writable) {
  * If you want to implement the function for only project 2, implement it on the
  * upper block. */
 
+ struct segment_aux {
+	struct file *file;
+	off_t ofs;
+	uint64_t read_bytes;
+	uint64_t zero_bytes;
+	size_t page_cnt;
+	bool is_mmap_start;
+};
+
+static struct segment_aux *
+create_segment_aux(struct file *file, off_t ofs, uint64_t read_bytes, uint64_t zero_bytes) {
+	//내부 필수 필드: file, ofs, read_bytes, zero_bytes.
+	struct segment_aux *aux_ptr = malloc (sizeof (struct segment_aux));
+	if (aux_ptr == NULL)
+		return NULL;
+
+	aux_ptr->file = file_reopen(file); // [DEBUGED] 원래 aux_ptr->file = file;라서 모든 segment page가 하나의 Struct file을 공유함
+	if (aux_ptr->file == NULL) {
+		free (aux_ptr);
+		return NULL;
+	}
+	aux_ptr->ofs = ofs;
+	aux_ptr->read_bytes = read_bytes;
+	aux_ptr->zero_bytes = zero_bytes;
+	aux_ptr->page_cnt = 0;
+	aux_ptr->is_mmap_start = false;
+	return aux_ptr;
+}
+
+static void free_segment_aux(void *aux) {
+	if (aux != NULL)
+		free(aux);
+}
+
 static bool
 lazy_load_segment (struct page *page, void *aux) {
-	/* TODO: Load the segment from the file */
-	/* TODO: This called when the first page fault occurs on address VA. */
-	/* TODO: VA is available when calling this function. */
+
+	struct segment_aux *a = aux;
+	void *kva = page->frame->kva;
+	off_t read_bytes = file_read_at(a->file, kva, (off_t)a->read_bytes, a->ofs);
+	if (read_bytes != a->read_bytes){
+		free_segment_aux(a);
+		return false;
+	}
+	memset(kva + read_bytes, 0, a->zero_bytes);
+	free_segment_aux(a);
+	return true;
 }
 
 /* Loads a segment starting at offset OFS in FILE at address
@@ -1214,7 +1259,7 @@ lazy_load_segment (struct page *page, void *aux) {
  * or disk read error occurs. */
 static bool
 load_segment (struct file *file, off_t ofs, uint8_t *upage,
-		uint32_t read_bytes, uint32_t zero_bytes, bool writable) {
+		uint64_t read_bytes, uint64_t zero_bytes, bool writable) {
 	ASSERT ((read_bytes + zero_bytes) % PGSIZE == 0);
 	ASSERT (pg_ofs (upage) == 0);
 	ASSERT (ofs % PGSIZE == 0);
@@ -1228,29 +1273,36 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 
 		/* TODO: Set up aux to pass information to the lazy_load_segment. */
 		void *aux = NULL;
-		if (!vm_alloc_page_with_initializer (VM_ANON, upage,
-					writable, lazy_load_segment, aux))
+
+		aux = create_segment_aux (file, ofs, page_read_bytes, page_zero_bytes);
+		if (aux == NULL)
 			return false;
 
+		if (!vm_alloc_page_with_initializer (VM_ANON, upage,
+					writable, lazy_load_segment, aux)){
+			free_segment_aux(aux);
+			return false;
+		}
 		/* Advance. */
 		read_bytes -= page_read_bytes;
 		zero_bytes -= page_zero_bytes;
 		upage += PGSIZE;
+		ofs += page_read_bytes;
 	}
 	return true;
 }
 
-/* Create a PAGE of stack at the USER_STACK. Return true on success. */
+//초기 스택페이지를 만들고, frame과 매핑
 static bool
 setup_stack (struct intr_frame *if_) {
 	bool success = false;
 	void *stack_bottom = (void *) (((uint8_t *) USER_STACK) - PGSIZE);
-
-	/* TODO: Map the stack on stack_bottom and claim the page immediately.
-	 * TODO: If success, set the rsp accordingly.
-	 * TODO: You should mark the page is stack. */
-	/* TODO: Your code goes here */
-
+	if (vm_alloc_page(VM_ANON, stack_bottom, true)){
+		success = vm_claim_page(stack_bottom);
+		if (success) {
+			if_->rsp = USER_STACK;
+		}
+	}
 	return success;
 }
 #endif /* VM */

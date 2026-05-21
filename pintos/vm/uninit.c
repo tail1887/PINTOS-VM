@@ -10,6 +10,7 @@
 
 #include "vm/vm.h"
 #include "vm/uninit.h"
+#include "threads/malloc.h"
 
 static bool uninit_initialize (struct page *page, void *kva);
 static void uninit_destroy (struct page *page);
@@ -50,10 +51,17 @@ uninit_initialize (struct page *page, void *kva) {
 	/* Fetch first, page_initialize may overwrite the values */
 	vm_initializer *init = uninit->init;
 	void *aux = uninit->aux;
+	enum vm_type type = uninit->type;
+	bool (*page_initializer) (struct page *, enum vm_type, void *) =
+		uninit->page_initializer;
 
-	/* TODO: You may need to fix this function. */
-	return uninit->page_initializer (page, uninit->type, kva) &&
-		(init ? init (page, aux) : true);
+	if (!page_initializer (page, type, kva))
+		return false;
+
+	if (init == NULL)
+		return true;
+
+	return init (page, aux);
 }
 
 /* Free the resources hold by uninit_page. Although most of pages are transmuted
@@ -62,7 +70,10 @@ uninit_initialize (struct page *page, void *kva) {
  * PAGE will be freed by the caller. */
 static void
 uninit_destroy (struct page *page) {
-	struct uninit_page *uninit UNUSED = &page->uninit;
-	/* TODO: Fill this function.
-	 * TODO: If you don't have anything to do, just return. */
+		struct uninit_page *u = &page->uninit;
+	if (u->aux != NULL) {
+		free(u->aux);
+		u->aux = NULL;
+	}
+	//free(page)는 호출자가 함
 }
