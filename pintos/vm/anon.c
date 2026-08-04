@@ -84,6 +84,18 @@ anon_swap_in (struct page *page, void *kva) {
 	return true;
 }
 
+/* Read swap slot into kva without freeing the slot (fork parent snapshot). */
+bool
+anon_read_swap_to_kva (size_t swap_slot, void *kva) {
+	if (swap_slot == ANON_SWAP_SLOT_NONE)
+		return false;
+
+	disk_sector_t base = swap_slot * (PGSIZE / DISK_SECTOR_SIZE);
+	for (size_t i = 0; i < PGSIZE / DISK_SECTOR_SIZE; i++)
+		disk_read (swap_disk, base + i, kva + i * DISK_SECTOR_SIZE);
+	return true;
+}
+
 /* Swap out the page by writing contents to the swap disk. */
 static bool
 anon_swap_out (struct page *page) {
